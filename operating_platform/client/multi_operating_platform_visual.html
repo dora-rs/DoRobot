@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>DoRobot Operating Platform</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@2"></script> 
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script> 
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"> 
+    <style>
+        :root {
+            --primary-color: #3498db;
+            --secondary-color: #2c3e50;
+            --accent-color: #1abc9c;
+            --danger-color: #e74c3c;
+            --success-color: #2ecc71;
+            --warning-color: #f39c12;
+            --light-bg: #f8f9fa;
+            --dark-bg: #2c3e50;
+            --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+            padding: 20px;
+        }
+
+        #app {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 40px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 25px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: var(--card-shadow);
+        }
+
+        .header h1 {
+            color: var(--secondary-color);
+            font-size: 2.5rem;
+            margin-bottom: 15px;
+        }
+
+        /* 主体布局 */
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr 2fr; /* 左边1/3，右边2/3 */
+            gap: 30px;
+        }
+
+        /* 左侧面板容器 */
+        .left-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 10px;
+            box-shadow: var(--card-shadow);
+            overflow: hidden;
+            transition: transform 0.2s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+        }
+
+        .card-header {
+            background: var(--secondary-color);
+            color: white;
+            padding: 20px;
+            font-size: 1.3rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card-body {
+            padding: 30px;
+        }
+
+        select, button {
+            width: 100%;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            font-size: 1.1rem;
+        }
+
+        select:focus {
+            border-color: var(--primary-color);
+            outline: none;
+        }
+
+        button {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 20px;
+            transition: background 0.3s ease;
+        }
+
+        button:hover {
+            background: #2980b9;
+        }
+
+        button:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+        }
+
+        .video-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 30px;
+            margin: 20px 0;
+        }
+
+        .video-item {
+            position: relative;
+            width: 100%;
+            height: 0;
+            padding-top: 56.25%;
+            border: 2px solid #ddd;
+            background: #000;
+            overflow: hidden;
+            border-radius: 8px;
+        }
+
+        .video-item img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .video-status {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.6);
+            padding: 6px 12px;
+            border-radius: 5px;
+            color: white;
+            font-size: 0.9rem;
+            backdrop-filter: blur(2px);
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 25px;
+        }
+
+        .status-dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-active {
+            background: var(--success-color);
+        }
+
+        .status-inactive {
+            background: var(--danger-color);
+        }
+
+        .notification {
+            padding: 12px;
+            border-radius: 6px;
+            margin: 12px 0;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 0.95rem;
+        }
+
+        .notification-success {
+            background: rgba(46, 204, 113, 0.15);
+            border-left: 4px solid var(--success-color);
+            color: #27ae60;
+        }
+
+        .notification-error {
+            background: rgba(231, 76, 60, 0.15);
+            border-left: 4px solid var(--danger-color);
+            color: #c0392b;
+        }
+
+        .notification-info {
+            background: rgba(52, 152, 219, 0.15);
+            border-left: 4px solid var(--primary-color);
+            color: #2980b9;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 992px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+
+            .left-panel {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="header">
+            <h1><i class="fas fa-robot"></i> DoRobot Operating Platform</h1>
+        </div>
+
+        <div class="dashboard">
+            <!-- 左侧面板 -->
+            <div class="left-panel">
+                <!-- 控制面板 -->
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-video"></i> 视频流控制
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label for="stream-select"><i class="fas fa-satellite-dish"></i> 选择视频流</label>
+                            <select id="stream-select" v-model.number="selectedStream" @change="changeStream">
+                                <option value="" disabled selected>请选择视频流</option>
+                                <option v-for="stream in streams" :value="stream.id">{{ stream.name }}</option>
+                            </select>
+                        </div>
+                        <button @click="startStream" :disabled="!selectedStream || loading">
+                            <i class="fas fa-play"></i>
+                            <span v-if="!loading">开始播放</span>
+                            <span v-else><span class="loading"></span> 连接中...</span>
+                        </button>
+                        <button @click="getStreams" :disabled="loading" style="background: var(--accent-color);">
+                            <i class="fas fa-sync-alt"></i> 刷新视频流列表
+                        </button>
+                        <div class="status-indicator">
+                            <span class="status-dot" :class="currentImage ? 'status-active' : 'status-inactive'"></span>
+                            <span v-if="currentImage">视频流活动: {{ selectedStreamName }}</span>
+                            <span v-else>视频流未激活</span>
+                        </div>
+                        <div v-if="notification.message" class="notification" :class="'notification-' + notification.type">
+                            <i :class="notification.icon"></i>
+                            <div>{{ notification.message }}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 系统信息 -->
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-info-circle"></i> 系统信息
+                    </div>
+                    <div class="card-body">
+                        <div class="info-box">
+                            <pre>{{ info }}</pre>
+                        </div>
+                        <button @click="getSystemInfo" :disabled="loadingInfo">
+                            <i class="fas fa-redo"></i>
+                            <span v-if="!loadingInfo">刷新系统信息</span>
+                            <span v-else><span class="loading"></span> 获取中...</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧视频区域 -->
+            <div class="card">
+                <div class="card-header">
+                    <i class="fas fa-tv"></i> 多路视频监控 (2x2)
+                </div>
+                <div class="card-body">
+                    <div class="video-grid">
+                        <div v-for="(item, index) in videoItems" :key="index" class="video-item">
+                            <img :src="item.src" alt="视频流" v-if="item.src">
+                            <div v-else class="video-placeholder">
+                                <i class="fas fa-satellite"></i>
+                                <p>未激活</p>
+                            </div>
+                            <div class="video-status" v-if="item.status">
+                                {{ item.status }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        new Vue({
+            el: '#app',
+            data: {
+                streams: [],
+                selectedStream: '',
+                currentImage: null,
+                info: {},
+                loading: false,
+                loadingInfo: false,
+                notification: {
+                    message: '',
+                    type: '',
+                    icon: ''
+                },
+                // 4路视频流数据
+                videoItems: [
+                    { src: null, status: '' },
+                    { src: null, status: '' },
+                    { src: null, status: '' },
+                    { src: null, status: '' }
+                ]
+            },
+            computed: {
+                selectedStreamName() {
+                    if (!this.selectedStream) return '';
+                    const stream = this.streams.find(s => s.id === this.selectedStream);
+                    return stream ? stream.name : '';
+                }
+            },
+            mounted() {
+                this.getStreams();
+                this.getSystemInfo();
+            },
+            methods: {
+                showNotification(message, type, icon) {
+                    this.notification = { message, type, icon };
+                    setTimeout(() => {
+                        this.notification.message = '';
+                    }, 5000);
+                },
+                async getStreams() {
+                    this.loading = true;
+                    try {
+                        const response = await axios.get('http://localhost:8080/api/stream_info');
+                        this.streams = response.data.streams || [];
+                        this.showNotification('视频流列表已更新', 'success', 'fa-check-circle');
+                    } catch (error) {
+                        console.error('获取视频流失败:', error);
+                        this.showNotification('获取视频流列表失败: ' + error.message, 'error', 'fa-exclamation-circle');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                async getSystemInfo() {
+                    this.loadingInfo = true;
+                    try {
+                        const response = await axios.get('http://localhost:8080/api/info');
+                        this.info = response.data;
+                        this.showNotification('系统信息已更新', 'success', 'fa-check-circle');
+                    } catch (error) {
+                        console.error('获取系统信息失败:', error);
+                        this.showNotification('获取系统信息失败: ' + error.message, 'error', 'fa-exclamation-circle');
+                    } finally {
+                        this.loadingInfo = false;
+                    }
+                },
+                async startStream() {
+                    if (!this.selectedStream) return;
+                    this.loading = true;
+                    try {
+                        const emptySlotIndex = this.videoItems.findIndex(item => !item.src);
+                        if (emptySlotIndex === -1) {
+                            this.showNotification('没有可用的视频槽位', 'error', 'fa-exclamation-circle');
+                            return;
+                        }
+                        await axios.post('http://localhost:8080/api/start_stream', {
+                            stream_id: this.selectedStream
+                        });
+                        this.videoItems[emptySlotIndex].src = `http://localhost:8080/api/get_stream/${this.selectedStream}`;
+                        const streamName = this.selectedStreamName;
+                        this.videoItems[emptySlotIndex].status = `播放中: ${streamName}`;
+                        this.showNotification(`视频流 ${streamName} 已启动`, 'success', 'fa-play-circle');
+                    } catch (error) {
+                        console.error('启动视频流失败:', error);
+                        this.showNotification('启动视频流失败: ' + error.message, 'error', 'fa-exclamation-circle');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                changeStream() {
+                    this.currentImage = null;
+                    this.showNotification(`已选择视频流: ${this.selectedStreamName}`, 'info', 'fa-info-circle');
+                }
+            },
+            beforeDestroy() {
+                if (this.imageTimer) clearInterval(this.imageTimer);
+            }
+        });
+    </script>
+</body>
+</html>

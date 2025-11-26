@@ -1,0 +1,83 @@
+# # 使用 Ubuntu 官方镜像
+# FROM ubuntu:22.04
+
+# Nidia官方镜像
+FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
+
+# 更新系统
+RUN apt-get update && apt-get upgrade -y
+
+# 安装系统依赖
+RUN apt-get install -y \
+        vim \
+        wget \
+        bzip2 \
+        git \
+        curl \
+        python3-pip \
+        build-essential \
+        ca-certificates \
+        libgl1 \
+        libglib2.0-dev
+
+# # rerun
+# RUN sudo apt-get -y install \
+#     libclang-dev \
+#     libatk-bridge2.0 \
+#     libfontconfig1-dev \
+#     libfreetype6-dev \
+#     libglib2.0-dev \
+#     libgtk-3-dev \
+#     libssl-dev \
+#     libxcb-render0-dev \
+#     libxcb-shape0-dev \
+#     libxcb-xfixes0-dev \
+#     libxkbcommon-dev \
+#     patchelf
+
+# RUN sudo apt install libxkbcommon-x11-0
+# RUN unset WAYLAND_DISPLAY
+
+# 设置安装参数
+ENV CONDA_DIR=/opt/conda
+ENV PATH=$CONDA_DIR/bin:$PATH
+
+# 下载并安装 Miniconda
+RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh && \
+    /bin/bash ~/miniconda.sh -b -p $CONDA_DIR && \
+    rm ~/miniconda.sh && \
+    # 初始化 conda
+    conda init bash
+
+# 创建 Conda 环境 op 并安装uv、torch
+RUN conda create -n op python=3.11 -y \
+    && conda run -n op pip install --no-cache-dir uv -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    && conda run -n op uv pip install --no-cache-dir torch==2.6.0+cu124 torchvision==0.21.0+cu124 torchaudio==2.6.0+cu124 \
+        -i https://pypi.org/simple \
+        --extra-index-url https://download.pytorch.org/whl/cu124
+
+# 创建 Conda 环境 op-robot-aloha 并安装uv
+RUN conda create -n op-robot-aloha python=3.11 -y \
+    && conda run -n op-robot-aloha pip install --no-cache-dir uv -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 设置工作目录并复制项目
+WORKDIR /Operating-Platform
+COPY . .
+
+# 安装 op 项目依赖
+RUN conda run -n op uv pip install -e . --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 安装 op-robot-aloha 项目依赖
+RUN conda run -n op-robot-aloha uv pip install -e operating_platform/robot/ --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+RUN conda run -n op-robot-aloha uv pip install -r operating_platform/robot/components/camera_rgbd_orbbec_v1/pyorbbecsdk/requirements.txt \
+    --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+RUN conda run -n op-robot-aloha uv pip install operating_platform/robot/components/camera_rgbd_orbbec_v1/pyorbbecsdk/dist/*.whl
+
+# 清理
+RUN conda run -n op uv cache clean && \
+    conda run -n op-robot-aloha uv cache clean && \
+    conda clean --all -y && \
+    apt-get clean
+
+# 设置默认启动命令
+CMD ["/bin/bash"]

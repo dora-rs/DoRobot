@@ -1,0 +1,5 @@
+nodes:
+  - id: dora-thread
+    path: dora_thread.py
+    inputs:
+      tick: dora/timer/millis/33

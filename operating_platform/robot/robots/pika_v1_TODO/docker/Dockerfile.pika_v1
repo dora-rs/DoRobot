@@ -1,0 +1,84 @@
+# dr-image-pika-v1
+
+# 使用 Ubuntu 官方镜像
+FROM ubuntu:22.04
+
+# 更新系统
+RUN apt-get update && apt-get upgrade -y
+
+# 安装系统依赖
+RUN apt-get install -y \
+        vim \
+        wget \
+        bzip2 \
+        git \
+        curl \
+        cmake \
+        ffmpeg \
+        python3-pip \
+        build-essential \
+        ca-certificates \
+        libgl1 \
+        libglib2.0-dev \
+        libgtk-3-dev \
+        libudev-dev \
+        libusb-1.0-0-dev \
+        libssl-dev \
+        libglu1-mesa-dev \
+        libglfw3-dev \
+        libgl1-mesa-dev \
+        v4l-utils
+
+# 设置安装参数
+ENV CONDA_DIR=/opt/conda
+ENV PATH=$CONDA_DIR/bin:$PATH
+
+# 下载并安装 Miniconda
+RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh && \
+    /bin/bash ~/miniconda.sh -b -p $CONDA_DIR && \
+    rm ~/miniconda.sh && \
+    # 初始化 conda
+    conda init bash && \
+    #接受conda条款
+    conda tos accept --channel https://repo.anaconda.com/pkgs/main && \
+    conda tos accept --channel https://repo.anaconda.com/pkgs/r
+
+# 创建 Conda 环境 op 并安装uv、torch
+RUN conda create -n op python=3.11 -y \
+    && conda run -n op pip install --no-cache-dir uv -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    && conda run -n op pip install --no-cache-dir torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 \
+        -i https://pypi.org/simple \
+        --extra-index-url https://download.pytorch.org/whl/cpu
+
+# 创建 Conda 环境 op-robot-pika 并安装uv
+RUN conda create -n op-robot-pika python=3.11 -y \
+    && conda run -n op-robot-pika pip install --no-cache-dir uv -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 创建 Conda 环境 op-component-vive 并安装uv
+RUN conda create -n op-component-vive python=3.10 -y \
+    && conda run -n op-component-vive pip install --no-cache-dir uv -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 设置工作目录并复制项目
+WORKDIR /Operating-Platform
+COPY . .
+
+# 安装 op 环境依赖
+RUN conda run -n op uv pip install -e . --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 安装 op-robot-pika 环境依赖
+RUN conda run -n op-robot-pika uv pip install -e operating_platform/robot/robots/pika_v1 --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+RUN conda run -n op-robot-pika uv pip install -e operating_platform/robot/components/camera_rgbd_realsense --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 安装 op-component-vive 环境依赖
+RUN conda run -n op-component-vive uv pip install -e operating_platform/robot/components/gripper_pika --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+RUN conda run -n op-component-vive uv pip install -e operating_platform/robot/components/tracker_6d_vive --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 清理
+RUN conda run -n op uv cache clean && \
+    conda run -n op-robot-pika uv cache clean && \
+    conda run -n op-component-vive uv cache clean && \
+    conda clean --all -y && \
+    apt-get clean
+
+# 设置默认启动命令
+CMD ["/bin/bash"]

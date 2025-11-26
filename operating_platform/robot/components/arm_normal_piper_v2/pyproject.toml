@@ -1,0 +1,23 @@
+[project]
+name = "dr-arm-piper"
+version = "0.3.12"
+authors = [
+  { name = "Haixuan Xavier Tao", email = "tao.xavier@outlook.com" },
+  { name = "Xiang Yang", email = "Ryu-Yang@qq.com" },
+]
+description = "Dora Node for using Agilex piper"
+license = { text = "MIT" }
+readme = "README.md"
+requires-python = ">=3.8"
+
+dependencies = [
+  "dora-rs >= 0.3.9",
+  "piper_sdk >= 0.0.8"
+]
+
+[tool.setuptools]
+packages = []
+
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"

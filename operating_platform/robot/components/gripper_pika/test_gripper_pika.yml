@@ -1,0 +1,13 @@
+nodes:
+  - id: gripper
+    path: dr_gripper_pika/main.py
+    inputs:
+      tick: dora/timer/millis/33
+    outputs:
+      - distance
+
+  - id: plot
+    path: dr_gripper_pika/plot.py
+    inputs:
+      gripper_distance: gripper/distance
+  

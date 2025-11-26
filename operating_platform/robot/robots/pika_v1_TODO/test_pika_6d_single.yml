@@ -1,0 +1,19 @@
+nodes:
+  - id: dora-vive-tracker
+    path: ../../components/tracker_6d_vive/dora_vive_tracker.py
+    inputs:
+      tick: dora/timer/millis/33
+    outputs:
+      - imu
+      - pose
+
+  - id: dora-vive-print
+    path: ../../components/tracker_6d_vive/dora_vive_print.py
+    inputs:
+      imu: dora-vive-tracker/imu
+      pose: dora-vive-tracker/pose
+  
+  - id: dora-pika-trans-visual
+    path: dora_pika_trans_visual.py
+    inputs:
+      pose: dora-vive-tracker/pose

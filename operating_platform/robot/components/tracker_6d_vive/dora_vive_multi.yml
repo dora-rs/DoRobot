@@ -1,0 +1,30 @@
+nodes:
+  - id: dora-vive-tracker
+    path: dr_tracker_vive/tracker.py
+    inputs:
+      tick: dora/timer/millis/33
+    outputs:
+      - imu
+      - pose
+
+  - id: dora-vive-print
+    path: dr_tracker_vive/print.py
+    inputs:
+      imu: dora-vive-tracker/imu
+      pose: dora-vive-tracker/pose
+  
+  - id: dora-vive-visual-1
+    path: dr_tracker_vive/visual.py
+    inputs:
+      pose: dora-vive-tracker/pose
+    env:
+      GET_DEVICE_FROM: SN
+      DEVICE_SN: LHR-6FE2BEE6
+
+  - id: dora-vive-visual-2
+    path: dr_tracker_vive/visual.py
+    inputs:
+      pose: dora-vive-tracker/pose
+    env:
+      GET_DEVICE_FROM: SN
+      DEVICE_SN: LHR-B93C7988

@@ -1,0 +1,48 @@
+nodes:
+  - id: tracker
+    path: dr_tracker_vive/tracker.py
+    inputs:
+      tick: dora/timer/millis/33
+    outputs:
+      - imu
+      - pose
+
+  # - id: print
+  #   path: dr_tracker_vive/print.py
+  #   inputs:
+  #     imu: tracker/imu
+  #     pose: tracker/pose
+  
+  - id: vive-right
+    path: dr_tracker_vive/visual.py
+    inputs:
+      pose: tracker/pose
+    outputs:
+      - tansform
+      - pose
+      - rotation-quat
+    env:
+      GET_DEVICE_FROM: SN
+      DEVICE_SN: LHR-B93C7988
+      DR_VIVE_DISPLAY: False
+
+  - id: vive-left
+    path: dr_tracker_vive/visual.py
+    inputs:
+      pose: tracker/pose
+    outputs:
+      - tansform
+      - pose
+      - rotation-quat
+    env:
+      GET_DEVICE_FROM: SN
+      DEVICE_SN: LHR-6FE2BEE6
+      DR_VIVE_DISPLAY: False
+
+  - id: node-link
+    path: dr_tracker_vive/node_link.py
+    inputs:
+      pose_right: vive-right/pose
+      pose_left: vive-left/pose
+      rotation_right: vive-right/rotation-quat
+      rotation_left: vive-left/rotation-quat

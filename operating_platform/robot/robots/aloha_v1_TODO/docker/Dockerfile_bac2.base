@@ -1,0 +1,46 @@
+# 使用 Ubuntu 22.04 作为基础镜像
+FROM ubuntu:22.04
+
+# 设置 SHELL 以便使用 bash
+SHELL ["/bin/bash", "-c"]
+
+# 设置环境变量
+ENV DEBIAN_FRONTEND=noninteractive \
+    CONDA_DIR=/opt/miniconda3 \
+    PATH="${CONDA_DIR}/bin:$PATH" \
+    CONDA_ENV=op
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        wget \
+        bzip2 \
+        git \
+        curl \
+        python3-pip \
+        build-essential \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安装 Miniconda
+RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh \
+    && bash /tmp/miniconda.sh -b -p $CONDA_DIR \
+    && rm /tmp/miniconda.sh \
+    && conda init bash \
+    && echo "source $CONDA_DIR/etc/profile.d/conda.sh" >> ~/.bashrc
+
+# 创建 Conda 环境并安装依赖
+RUN conda create -n $CONDA_ENV python=3.11 -y \
+    && conda run -n $CONDA_ENV pip install --no-cache-dir uv -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 设置工作目录并复制项目
+WORKDIR /Operating-Platform
+COPY . .
+
+# 安装项目依赖和 PyTorch
+RUN conda run -n $CONDA_ENV uv sync --index-url https://pypi.tuna.tsinghua.edu.cn/simple \
+    && conda run -n $CONDA_ENV pip install --no-cache-dir torch==2.6.0 \
+        -i https://pypi.tuna.tsinghua.edu.cn/simple \
+        --extra-index-url https://download.pytorch.org/whl/cpu
+
+# 设置默认启动命令
+CMD ["/bin/bash", "-c", "conda activate op && exec bash"]

@@ -1,0 +1,56 @@
+nodes:
+  - id: piper_left
+    # build: pip install dora-piper
+    path: piper.py
+    inputs:
+      tick: dora/timer/millis/40
+    outputs:
+      - jointstate
+      - pose
+      - gripper
+    env:
+      CAN_BUS: can_left
+      TEACH_MODE: True
+
+  - id: piper_right
+    # build: pip install dora-piper
+    path: piper.py
+    inputs:
+      tick: dora/timer/millis/40
+    outputs:
+      - jointstate
+      - pose
+      - gripper
+    env:
+      CAN_BUS: can_right
+      TEACH_MODE: True
+
+  - id: rerun
+    path: dora-rerun
+    build: |
+      wget -nc -P urdf/ https://raw.githubusercontent.com/agilexrobotics/Piper_ros/4f22c61f96b8fb3ef3f937b99b63edb697caadf0/src/piper_description/meshes/base_link.STL
+      wget -nc -P urdf/ https://raw.githubusercontent.com/agilexrobotics/Piper_ros/4f22c61f96b8fb3ef3f937b99b63edb697caadf0/src/piper_description/meshes/link1.STL
+      wget -nc -P urdf/ https://raw.githubusercontent.com/agilexrobotics/Piper_ros/4f22c61f96b8fb3ef3f937b99b63edb697caadf0/src/piper_description/meshes/link2.STL
+      wget -nc -P urdf/ https://raw.githubusercontent.com/agilexrobotics/Piper_ros/4f22c61f96b8fb3ef3f937b99b63edb697caadf0/src/piper_description/meshes/link3.STL
+      wget -nc -P urdf/ https://raw.githubusercontent.com/agilexrobotics/Piper_ros/4f22c61f96b8fb3ef3f937b99b63edb697caadf0/src/piper_description/meshes/link4.STL
+      wget -nc -P urdf/ https://raw.githubusercontent.com/agilexrobotics/Piper_ros/4f22c61f96b8fb3ef3f937b99b63edb697caadf0/src/piper_description/meshes/link5.STL
+      wget -nc -P urdf/ https://raw.githubusercontent.com/agilexrobotics/Piper_ros/4f22c61f96b8fb3ef3f937b99b63edb697caadf0/src/piper_description/meshes/link6.STL
+      wget -nc -P urdf/ https://raw.githubusercontent.com/agilexrobotics/Piper_ros/4f22c61f96b8fb3ef3f937b99b63edb697caadf0/src/piper_description/meshes/link7.STL
+      wget -nc -P urdf/ https://raw.githubusercontent.com/agilexrobotics/Piper_ros/4f22c61f96b8fb3ef3f937b99b63edb697caadf0/src/piper_description/meshes/link8.STL
+      pip install git+https://github.com/rerun-io/rerun-loader-python-example-urdf.git
+
+    inputs:
+      jointstate_piper_left: piper_left/jointstate
+      jointstate_piper_right: piper_right/jointstate
+    env:
+      piper_left_urdf: urdf/piper_left.urdf
+      piper_right_urdf: urdf/piper_right.urdf
+      piper_left_transform: 0 0.3 0
+      piper_right_transform: 0 -0.3 0
+      RERUN_MEMORY_LIMIT: 25%
+
+  # - id: print_joint
+  #   path: print_joint.py
+  #   inputs:
+  #     jointstate_piper_left: piper_left/jointstate
+  #     jointstate_piper_right: piper_right/jointstate

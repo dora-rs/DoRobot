@@ -1,0 +1,40 @@
+# ===== 开发依赖 & 环境 =====
+**/node_modules/
+**/venv/
+**/.venv/
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+
+# ===== 构建产物 =====
+**/dist/
+**/build/
+**/out/
+**/target/  # Rust/Cargo
+*.exe
+*.bin
+
+# ===== 版本控制 & IDE =====
+; .git/
+.svn/
+**/.idea/
+**/.vscode/
+
+# ===== 依赖锁定文件 =====
+**/package-lock.json
+**/yarn.lock
+**/Pipfile.lock
+**/poetry.lock  
+
+# ===== 配置文件 & 日志 & 数据 =====
+.env
+*.env
+*.log
+**/logs/
+**/Log/
+**/data/
+**/cache/
+*.tar*
+*.dump
+*.rdb
+*.tar

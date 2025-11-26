@@ -1,0 +1,19 @@
+nodes:
+  - id: camera-realsense
+    path: main.py
+    inputs:
+      tick: dora/timer/millis/33
+    outputs:
+      - image
+      - depth
+    env:
+      IMAGE_WIDTH: 640
+      IMAGE_HEIGHT: 480
+      DEVICE_SERIAL: 230322275124
+
+  - id: plot
+    path: plot.py
+    inputs:
+      image:
+        source: camera-realsense/image
+        queue_size: 1

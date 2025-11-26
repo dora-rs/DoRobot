@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DoRobot Operating Platform</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@2"></script> 
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script> 
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 800px;
+            margin: auto;
+        }
+        .video-container {
+            position: relative;
+            width: 100%;
+            height: 400px;
+            border: 1px solid #ccc;
+            margin: 20px 0;
+        }
+        img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        select, button {
+            padding: 10px;
+            margin: 10px 0;
+            font-size: 16px;
+        }
+        .info-box {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <h1>DoRobot Operating Platform</h1>
+
+        <!-- 视频流选择 -->
+        <select v-model="selectedStream" @change="changeStream">
+            <option value="" disabled selected>请选择视频流</option>
+            <option v-for="stream in streams" :value="stream.id">{{ stream.name }}</option>
+        </select>
+
+        <!-- 控制按钮 -->
+        <button @click="startStream" :disabled="!selectedStream">开始播放</button>
+        
+        <!-- 视频显示 -->
+        <div class="video-container">
+            <img :src="currentImage" alt="实时视频流" v-if="currentImage">
+            <p v-else>未选择视频流</p>
+        </div>
+
+        <!-- 系统信息 -->
+        <div class="info-box">
+            <h3>系统信息</h3>
+            <pre>{{ info }}</pre>
+        </div>
+    </div>
+
+    <script>
+        new Vue({
+            el: '#app',
+            data: {
+                streams: [],
+                selectedStream: '',
+                currentImage: null,
+                info: {}
+            },
+            mounted() {
+                this.getStreams();
+                this.getSystemInfo();
+            },
+            methods: {
+                // 获取可用视频流列表
+                async getStreams() {
+                    try {
+                        const response = await axios.get('http://localhost:7080/api/stream_info');
+                        this.streams = response.data.streams || [];
+                    } catch (error) {
+                        console.error('获取视频流失败:', error);
+                        alert('无法获取视频流列表');
+                    }
+                },
+
+                // 获取系统信息
+                async getSystemInfo() {
+                    try {
+                        const response = await axios.get('http://localhost:7080/api/info');
+                        this.info = response.data;
+                    } catch (error) {
+                        console.error('获取系统信息失败:', error);
+                    }
+                },
+
+                // 开始视频流
+                async startStream() {
+                    if (!this.selectedStream) return;
+
+                    try {
+                        
+                        await axios.post('http://localhost:7080/api/start_stream', {
+                            stream_id: this.selectedStream
+                        });
+
+                        // 直接加载 MJPEG 流
+                        this.currentImage = `http://localhost:7080/api/get_stream/${this.selectedStream}`;
+                    } catch (error) {
+                        console.error('启动视频流失败:', error);
+                        alert('启动视频流失败');
+                    }
+                },
+
+                changeStream() {
+                    this.currentImage = null;
+                }
+            },
+            beforeDestroy() {
+                // 组件销毁时清除轮询
+                if (this.imageTimer) clearInterval(this.imageTimer);
+            }
+        });
+    </script>
+</body>
+</html>

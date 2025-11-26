@@ -1,0 +1,58 @@
+nodes:
+  - id: piper_right
+    path: main.py
+    inputs:
+      tick: dora/timer/millis/33
+    outputs:
+      - master-endpose
+      # - master-jointstate
+      # - master-gripper
+      - slave-endpose
+      - slave-jointstate
+      # - slave-gripper
+    env:
+      CAN_BUS: can_right
+
+  - id: piper_left
+    path: main.py
+    inputs:
+      tick: dora/timer/millis/33
+    outputs:
+      - master-endpose
+      # - master-jointstate
+      # - master-gripper
+      - slave-endpose
+      - slave-jointstate
+      # - slave-gripper
+    env:
+      CAN_BUS: can_left
+
+  # - id: rerun
+  #   path: dora-rerun
+  #   inputs:
+  #     image_top: 
+  #       source: camera_top/image
+  #       queue_size: 1
+  #     image_depth_top:
+  #       source: camera_top/image_depth
+  #       queue_size: 1
+  #     image_right:
+  #       source: camera_right/image
+  #       queue_size: 1
+  #     image_depth_right:
+  #       source: camera_right/image_depth
+  #       queue_size: 1
+  #     image_left:
+  #       source: camera_left/image
+  #       queue_size: 1
+  #     image_depth_left:
+  #       source: camera_left/image_depth
+  #       queue_size: 1
+  #   env:
+  #     RERUN_MEMORY_LIMIT: 25%
+
+  - id: print_joint
+    path: print_joint.py
+    inputs:
+      jointstate_piper_left: piper_left/jointstate
+      jointstate_piper_right: piper_right/jointstate

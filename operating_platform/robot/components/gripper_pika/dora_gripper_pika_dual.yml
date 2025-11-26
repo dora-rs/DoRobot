@@ -1,0 +1,30 @@
+nodes:
+  - id: gripper-right
+    path: dr_gripper_pika/main.py
+    inputs:
+      tick: dora/timer/millis/33
+    outputs:
+      - distance
+    env:
+      USB_PORT: "/dev/ttyUSB0"
+
+  - id: gripper-left
+    path: dr_gripper_pika/main.py
+    inputs:
+      tick: dora/timer/millis/33
+    outputs:
+      - distance
+    env:
+      USB_PORT: "/dev/ttyUSB1"
+
+  # - id: plot
+  #   path: dr_gripper_pika/plot.py
+  #   inputs:
+  #     gripper_right: gripper-right/distance
+  #     # gripper_left: gripper-left/distance
+
+  - id: node-link
+    path: dr_gripper_pika/node_link.py
+    inputs:
+      gripper_right: gripper-right/distance
+      gripper_left: gripper-left/distance

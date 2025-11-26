@@ -1,0 +1,81 @@
+# # 使用 Ubuntu 官方镜像
+FROM ubuntu:20.04
+
+# Nidia官方镜像
+# FROM nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04
+
+# 更新系统
+RUN apt update && apt upgrade -y
+
+# 设置非交互环境（必须）
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 预先设置时区（关键）
+RUN ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+
+# 安装系统依赖
+RUN apt install -y \
+    vim \
+    git \
+    curl \
+    wget \
+    bzip2 \
+    cmake \
+    ffmpeg \
+    x11-apps \
+    build-essential \
+    ca-certificates \
+    speech-dispatcher
+
+# 设置安装参数
+ENV CONDA_DIR=/opt/conda
+ENV PATH=$CONDA_DIR/bin:$PATH
+
+# 下载并安装 Miniconda
+RUN wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh && \
+    /bin/bash ~/miniconda.sh -b -p $CONDA_DIR && \
+    rm ~/miniconda.sh && \
+    # 初始化 conda
+    conda init bash
+
+# 创建 Conda 环境 op 并安装poetry、torch
+RUN conda create -n op python=3.11 -y \
+    && conda run -n op pip install --no-cache-dir poetry -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    && conda run -n op pip install --no-cache-dir torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 \
+        -i https://pypi.org/simple \
+        --extra-index-url https://download.pytorch.org/whl/cpu
+
+# 创建 Conda 环境 op-robot-aloha
+RUN conda create -n op-robot-aloha python=3.11 -y
+
+# 设置工作目录并复制项目
+WORKDIR /root/Operating-Platform
+COPY . .
+
+# 安装 op 项目依赖
+RUN conda run -n op poetry install
+
+# 安装 op-robot-aloha 项目依赖
+RUN conda run -n op-robot-aloha pip install -e operating_platform/robot/ --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
+WORKDIR operating_platform/robot/components/camera_rgbd_orbbec_v1/pyorbbecsdk/
+RUN conda run -n op-robot-aloha pip install -r requirements.txt --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+# ENV Python3_ROOT_DIR=/opt/conda/envs/op-robot-aloha
+RUN mkdir build && cd build && \
+    conda run -n op-robot-aloha cmake -Dpybind11_DIR=`pybind11-config --cmakedir` ..
+RUN cd build && \ 
+    conda run -n op-robot-aloha make -j4 && \
+    conda run -n op-robot-aloha make install && cd ../
+RUN conda run -n op-robot-aloha python setup.py bdist_wheel && \
+    conda run -n op-robot-aloha pip install dist/*.whl
+
+WORKDIR /Operating-Platform
+
+# 清理
+RUN conda run -n op pip cache purge && \
+    conda run -n op-robot-aloha pip cache purge && \
+    conda clean --all -y && \
+    apt-get clean
+
+# 设置默认启动命令
+CMD ["/bin/bash"]

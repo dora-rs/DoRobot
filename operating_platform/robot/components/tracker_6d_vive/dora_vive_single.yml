@@ -1,0 +1,21 @@
+nodes:
+  - id: dora-vive-tracker
+    path: dr_tracker_vive/tracker.py
+    inputs:
+      tick: dora/timer/millis/33
+    outputs:
+      - imu
+      - pose
+
+  - id: dora-vive-print
+    path: dr_tracker_vive/print.py
+    inputs:
+      imu: dora-vive-tracker/imu
+      pose: dora-vive-tracker/pose
+  
+  - id: dora-vive-visual
+    path: dr_tracker_vive/visual.py
+    inputs:
+      pose: dora-vive-tracker/pose
+    env:
+      DR_VIVE_DISPLAY: True

@@ -1,0 +1,13 @@
+nodes:
+  - id: dora-vive-tracker
+    path: dr_tracker_vive/tracker.py
+    inputs:
+      tick: dora/timer/millis/33
+    outputs:
+      - imu
+      - pose
+  
+  - id: dora-vive-sn
+    path: dr_tracker_vive/sn.py
+    inputs:
+      pose: dora-vive-tracker/pose

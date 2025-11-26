@@ -1,0 +1,42 @@
+[package]
+name = "dora-rerun"
+version = "0.3.12"           # 手动指定版本
+edition = "2024"             # 建议使用 2021（除非你明确需要 2024）
+rust-version = "1.89"        # 指定最低支持的 Rust 版本（可根据项目调整）
+description = "A Dora component for Rerun visualization"  # 必填项（crates.io 要求）
+license = "MIT"              # 请根据实际许可证填写（如 Apache-2.0）
+repository = "https://github.com/your-org/your-project"  # 替换为你的仓库地址
+documentation = "https://docs.rs/dora-rerun"             # 可选，或留空
+
+# 其他元数据（可选）
+authors = ["Your Name <you@example.com>"]  # 警告：已弃用，但仍可用
+publish = true  # 设为 false 可防止发布到 crates.io
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html  
+
+[features]
+default = []
+python = ["pyo3"]
+
+[dependencies]
+dora-node-api = { version = "0.3.12"}
+eyre = "0.6.8"
+tokio = { version = "1.24.2", features = ["rt"] }
+rerun = { version = "0.23.4", features = ["web_viewer", "image"] }
+ndarray = "0.15.6"
+k = "0.32"
+pyo3 = { version = "0.21", features = [
+    "extension-module",
+    "abi3",
+    "eyre",
+    "generate-import-lib",
+], optional = true }
+bytemuck = "1.20.0"
+rand = "0.9.1"
+pinyin = "0.10.0"
+re_web_viewer_server = "0.23.4"
+
+[lib]
+name = "dora_rerun"
+path = "src/lib.rs"
+crate-type = ["lib", "cdylib"]

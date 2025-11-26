@@ -1,0 +1,24 @@
+[project]
+name = "dr-component-tracker-vive"
+version = "0.1.0"
+authors = [
+  { name = "Xuecheng Liu", email = "liuxuechengCFA@163.com" },
+  { name = "Xiang Yang", email = "Ryu-Yang@qq.com" },
+]
+description = "dora-vive"
+readme = "README.md"
+requires-python = ">=3.9,<3.11"
+dependencies = [
+    "dora-rs-cli",
+    "matplotlib",
+    "pysurvive<=1.1.21",
+    "scipy",
+    "pyzmq",
+]
+
+[tool.setuptools]
+packages = ["dr_tracker_vive"]
+
+[build-system]
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"

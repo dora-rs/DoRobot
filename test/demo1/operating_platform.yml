@@ -1,0 +1,60 @@
+nodes:
+  # Hardware
+  - id: camera-1
+    path: opencv-video-capture
+    inputs:
+      tick: dora/timer/millis/35
+    outputs:
+      - image
+    env:
+      CAPTURE_PATH: 6
+      IMAGE_WIDTH: 1920
+      IMAGE_HEIGHT: 1080
+      ENCODING: jpeg
+  
+  - id: camera-2
+    path: opencv-video-capture
+    inputs:
+      tick: dora/timer/millis/35
+    outputs:
+      - image
+    env:
+      CAPTURE_PATH: 0
+      IMAGE_WIDTH: 640
+      IMAGE_HEIGHT: 480
+      ENCODING: jpeg
+
+  # Debug
+  - id: plot
+    path: dora-rerun
+    inputs:
+      image:
+        source: camera-1/image
+        queue_size: 1
+      # image-2:
+      #   source: camera-2/image
+      #   queue_size: 1
+    env:
+      IMAGE_WIDTH: 1920
+      IMAGE_HEIGHT: 1080
+      RERUN_MEMORY_LIMIT: 25%
+
+  # Platform
+  - id: platform
+    path: dora_platform.py
+    inputs:
+      robot_image-1:
+        source: camera-1/image
+        queue_size: 1
+      robot_image-2:
+        source: camera-2/image
+        queue_size: 1
+      robot_info: dora/timer/millis/100
+      server_cmd: dora/timer/millis/100
+    # outputs:
+    #   - server_cmd
+    #   - image
+    env:
+      STREAM_ID_1: camera_1
+      STREAM_ID_2: camera_2
+      SERVER_URL: http://localhost:8080
