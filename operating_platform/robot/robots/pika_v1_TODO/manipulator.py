@@ -97,7 +97,7 @@ def pika_recv_server():
 
 
         except zmq.Again:
-            print(f"Pika Received Timeout")
+            # Timeout is normal during polling, no need to log
             continue
         except Exception as e:
             print("recv error:", e)
@@ -138,7 +138,7 @@ def vive_recv_server():
                         recv_rotation[event_id] = rotation_array
 
         except zmq.Again:
-            print(f"VIVE Received Timeout")
+            # Timeout is normal during polling, no need to log
             continue
         except Exception as e:
             print("recv error:", e)
@@ -170,7 +170,7 @@ def gripper_recv_server():
                         recv_gripper[event_id] = gripper_array
 
         except zmq.Again:
-            print(f"Pika Gripper Received Timeout")
+            # Timeout is normal during polling, no need to log
             continue
         except Exception as e:
             print("recv error:", e)

@@ -9,13 +9,14 @@ from operating_platform.robot.robots.utils import Robot, busy_wait, safe_disconn
 
 from operating_platform.dataset.dorobot_dataset import *
 from operating_platform.core.daemon import Daemon
+from operating_platform.core.async_episode_saver import AsyncEpisodeSaver, EpisodeMetadata
 import draccus
 from operating_platform.utils import parser
 from operating_platform.utils.utils import has_method, init_logging, log_say, get_current_git_branch, git_branch_log, get_container_ip_from_hosts
 
 from operating_platform.utils.constants import DOROBOT_DATASET
 from operating_platform.utils.data_file import (
-    get_data_duration, 
+    get_data_duration,
     get_data_size ,
     update_dataid_json,
     update_common_record_json,
@@ -102,6 +103,16 @@ class RecordConfig():
     # Resume recording on an existing dataset.
     resume: bool = False
 
+    # NEW: Async save options
+    # Enable asynchronous episode saving (non-blocking save operations)
+    use_async_save: bool = True
+    # Maximum number of episodes that can be queued for async saving
+    async_save_queue_size: int = 10
+    # Timeout in seconds for save operations
+    async_save_timeout_s: int = 300
+    # Maximum retry attempts for failed saves
+    async_save_max_retries: int = 3
+
     record_cmd = None
 
 
@@ -114,10 +125,21 @@ class Record:
         self.record_cfg = record_cfg
         self.record_cfg.record_cmd = record_cmd
         self.record_cmd = record_cfg.record_cmd
-        
+
         self.last_record_episode_index = 0
         self.record_complete = False
         self.save_data = None
+
+        # Lock to protect buffer swap during save_async (prevents race condition
+        # where recording thread adds frame while buffer is being captured)
+        self._buffer_lock = threading.Lock()
+
+        # Async save support
+        self.use_async_save = getattr(record_cfg, 'use_async_save', True)  # Default to True
+        self.async_saver = None
+        if self.use_async_save:
+            max_queue_size = getattr(record_cfg, 'async_save_queue_size', 10)
+            self.async_saver = AsyncEpisodeSaver(max_queue_size=max_queue_size)
 
         action_features = hw_to_dataset_features(robot.action_features, "action", self.robot.use_videos)
         obs_features = hw_to_dataset_features(robot.observation_features, "observation", self.robot.use_videos)
@@ -156,7 +178,35 @@ class Record:
         self.thread = threading.Thread(target=self.process, daemon=True)
         self.running = True
 
+    def _create_new_episode_buffer(self) -> dict:
+        """
+        Create a new episode buffer with a pre-allocated episode index.
+
+        When using async save, the episode index is allocated from the
+        AsyncEpisodeSaver's counter to ensure correct sequencing even when
+        multiple episodes are being saved in parallel.
+        """
+        if self.use_async_save and self.async_saver:
+            # Pre-allocate index from async saver
+            episode_index = self.async_saver.allocate_next_index()
+            logging.info(f"[Record] Pre-allocated episode index {episode_index}")
+            return self.dataset.create_episode_buffer(episode_index=episode_index)
+        else:
+            # Use default behavior (based on meta.total_episodes)
+            return self.dataset.create_episode_buffer()
+
     def start(self):
+        # Start async saver BEFORE recording thread to ensure proper buffer setup
+        if self.use_async_save and self.async_saver:
+            initial_ep_idx = self.dataset.meta.total_episodes
+            self.async_saver.start(initial_episode_index=initial_ep_idx)
+            logging.info(f"[Record] Async saver started (initial_ep_idx={initial_ep_idx})")
+
+            # Create initial episode buffer with pre-allocated index
+            # This MUST happen before the recording thread starts to avoid race conditions
+            self.dataset.episode_buffer = self._create_new_episode_buffer()
+
+        # Now start the recording thread
         self.thread.start()
         self.running = True
 
@@ -172,7 +222,9 @@ class Record:
                     observation_frame = build_dataset_frame(self.dataset.features, observation, prefix="observation")
                     action_frame = build_dataset_frame(self.dataset.features, action, prefix="action")
                     frame = {**observation_frame, **action_frame}
-                    self.dataset.add_frame(frame, self.record_cfg.single_task)
+                    # Use lock to prevent race condition with save_async buffer swap
+                    with self._buffer_lock:
+                        self.dataset.add_frame(frame, self.record_cfg.single_task)
 
                 dt_s = time.perf_counter() - start_loop_t
 
@@ -186,10 +238,63 @@ class Record:
             self.thread.join()
             self.dataset.stop_audio_writer()
 
+        # CRITICAL: Wait for image_writer to finish ALL queued images BEFORE async saves
+        # Without this, async saves will fail because images haven't been written yet
+        if self.dataset.image_writer is not None:
+            logging.info("[Record] Waiting for image_writer to complete all pending images...")
+            self.dataset.image_writer.wait_until_done()
+            logging.info("[Record] Image writer finished")
+
+        # Stop async saver if enabled (wait for pending saves)
+        if self.use_async_save and self.async_saver:
+            status = self.async_saver.get_status()
+            if status["pending_count"] > 0:
+                logging.info(f"[Record] Waiting for {status['pending_count']} pending saves...")
+                self.async_saver.wait_all_complete(timeout=300.0)  # 5 min timeout for saves
+
         # stop_recording(robot, listener, record_cfg.display_cameras)
         # log_say("Stop recording", record_cfg.play_sounds, blocking=True)
 
-    def save(self) -> dict:
+    def save_async(self) -> EpisodeMetadata:
+        """
+        Queue episode for asynchronous saving.
+        Returns metadata immediately without blocking.
+
+        The episode buffer already has a pre-allocated episode_index
+        (assigned when the buffer was created via _create_new_episode_buffer).
+        This ensures images were saved to the correct directory during recording.
+        """
+        import copy
+
+        # CRITICAL: Use lock to atomically capture buffer and swap to new one
+        # This prevents the recording thread from adding frames during the swap
+        with self._buffer_lock:
+            current_ep_idx = self.dataset.episode_buffer.get("episode_index", "?")
+            logging.info(f"[Record] Queueing episode {current_ep_idx} for async save...")
+
+            # Deep copy the buffer INSIDE the lock (before recording thread can add more frames)
+            buffer_copy = copy.deepcopy(self.dataset.episode_buffer)
+
+            # Create new episode buffer INSIDE the lock
+            self.dataset.episode_buffer = self._create_new_episode_buffer()
+
+        # Queue save task with the copied buffer (outside lock to minimize lock hold time)
+        metadata = self.async_saver.queue_save(
+            episode_buffer=buffer_copy,  # Pass the COPY, not the live buffer
+            dataset=self.dataset,
+            record_cfg=self.record_cfg,
+            record_cmd=self.record_cmd,
+        )
+
+        # Update local state immediately
+        self.last_record_episode_index = metadata.episode_index
+        self.record_complete = True
+
+        logging.info(f"[Record] Episode {metadata.episode_index} queued (pos={metadata.queue_position})")
+        return metadata
+
+    def save_sync(self) -> dict:
+        """Original synchronous save method."""
         print("will save_episode")
 
         episode_index = self.dataset.save_episode()
@@ -199,7 +304,7 @@ class Record:
         update_dataid_json(self.record_cfg.root, episode_index,  self.record_cmd)
         if episode_index == 0 and self.dataset.meta.total_episodes == 1:
             update_common_record_json(self.record_cfg.root, self.record_cmd)
-        
+
         print("update_dataid_json succcess")
 
         if self.record_cfg.push_to_hub:
@@ -227,6 +332,16 @@ class Record:
         self.last_record_episode_index = episode_index
 
         self.save_data = data
+        return data
+
+    def save(self) -> EpisodeMetadata | dict:
+        """
+        Save episode - async by default, fallback to sync if needed.
+        """
+        if self.use_async_save:
+            return self.save_async()
+        else:
+            return self.save_sync()
 
     def discard(self):
         if self.record_complete == True:

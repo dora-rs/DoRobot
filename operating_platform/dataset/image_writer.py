@@ -69,6 +69,7 @@ def image_array_to_pil_image(image_array: np.ndarray, range_check: bool = True) 
 
 
 def write_image(image: np.ndarray | PIL.Image.Image, fpath: Path):
+    import logging
     try:
         if isinstance(image, np.ndarray):
             img = image_array_to_pil_image(image)
@@ -78,7 +79,9 @@ def write_image(image: np.ndarray | PIL.Image.Image, fpath: Path):
             raise TypeError(f"Unsupported image type: {type(image)}")
         img.save(fpath)
     except Exception as e:
-        print(f"Error writing image {fpath}: {e}")
+        # Log error with full traceback for debugging
+        import traceback
+        logging.error(f"[ImageWriter] Failed to write image {fpath}: {e}\n{traceback.format_exc()}")
 
 
 def worker_thread_loop(queue: queue.Queue):

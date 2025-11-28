@@ -53,7 +53,7 @@ def get_available_encoders():
             if match:
                 encoders.add(match.group(1))
 
-        print(f"Get ffmpeg encoders: {encoders}")
+        logging.info(f"[VideoEncoder] Available ffmpeg encoders: {encoders}")
 
         return encoders
 
@@ -173,13 +173,20 @@ def encode_video_frames(
     imgs_dir: Path | str,
     video_path: Path | str,
     fps: int,
-    vcodec: Literal["libopenh264", "libx264"] = "libx264",
+    vcodec: Literal["h264_ascend","libopenh264", "libx264"] = "h264_ascend",
     pix_fmt: str = "yuv420p",
-    g: int | None = 10,
+    g: int | None = 1,
     crf: int | None = 10,
     fast_decode: int = 0,
     log_level: Optional[str] = "error",
     overwrite: bool = False,
+    # Ascend 编码器特有参数
+    device_id: int = 0,
+    channel_id: int = 0,
+    profile: int = 1,  # 0: baseline, 1: main, 2: high
+    rc_mode: int = 0,  # 0: CBR, 1: VBR
+    max_bit_rate: int = 10000,  # 单位 kbps
+    movement_scene: int = 0,  # 0: static, 1: movement
 ) -> None:
     """More info on ffmpeg arguments tuning on `benchmark/video/README.md`"""
 
@@ -194,7 +201,7 @@ def encode_video_frames(
         pass  # 正常使用指定的编码器
     else:
         # 从支持的两个编码器中选择一个可用的
-        supported_candidates = {"libopenh264", "libx264"} & set(available_encoders)
+        supported_candidates = {"h264_ascend","libopenh264", "libx264"} & set(available_encoders)
 
         if not supported_candidates:
             raise ValueError(
@@ -203,7 +210,7 @@ def encode_video_frames(
             )
 
         # 优先选择 libx264，否则选择 libopenh264
-        selected_vcodec = "libx264" if "libx264" in supported_candidates else "libopenh264"
+        selected_vcodec = "h264_ascend" if "h264_ascend" in supported_candidates else "libopenh264"
 
         # 发出警告
         warnings.warn(
@@ -227,16 +234,34 @@ def encode_video_frames(
         ]
     )
 
-    if g is not None:
-        ffmpeg_args["-g"] = str(g)
+    # 针对不同编码器使用不同的参数
+    if vcodec == "h264_ascend":
+        # Ascend 编码器特有参数
+        ffmpeg_args["-device_id"] = str(device_id)
+        ffmpeg_args["-channel_id"] = str(channel_id)
+        ffmpeg_args["-profile"] = str(profile)
+        ffmpeg_args["-rc_mode"] = str(rc_mode)
+        ffmpeg_args["-max_bit_rate"] = str(max_bit_rate)
+        ffmpeg_args["-movement_scene"] = str(movement_scene)
+        
+        # Ascend 编码器使用 frame_rate 参数而不是 -r
+        ffmpeg_args["-frame_rate"] = str(fps)
+        
+        # Ascend 编码器不支持 crf，但支持 gop
+        if g is not None:
+            ffmpeg_args["-gop"] = str(g)
+    else:
+        # 其他编码器的原有参数
+        if g is not None:
+            ffmpeg_args["-g"] = str(g)
 
-    if crf is not None:
-        ffmpeg_args["-crf"] = str(crf)
+        if crf is not None:
+            ffmpeg_args["-crf"] = str(crf)
 
-    if fast_decode:
-        key = "-svtav1-params" if vcodec == "libsvtav1" else "-tune"
-        value = f"fast-decode={fast_decode}" if vcodec == "libsvtav1" else "fastdecode"
-        ffmpeg_args[key] = value
+        if fast_decode:
+            key = "-svtav1-params" if vcodec == "libsvtav1" else "-tune"
+            value = f"fast-decode={fast_decode}" if vcodec == "libsvtav1" else "fastdecode"
+            ffmpeg_args[key] = value
 
     if log_level is not None:
         ffmpeg_args["-loglevel"] = str(log_level)
@@ -246,6 +271,10 @@ def encode_video_frames(
         ffmpeg_args.append("-y")
 
     ffmpeg_cmd = ["ffmpeg"] + ffmpeg_args + [str(video_path)]
+
+    # Log encoding start
+    logging.info(f"[VideoEncoder] Encoding video: {video_path.name}")
+    
     # redirect stdin to subprocess.DEVNULL to prevent reading random keyboard inputs from terminal
     subprocess.run(ffmpeg_cmd, check=True, stdin=subprocess.DEVNULL)
 
@@ -254,7 +283,6 @@ def encode_video_frames(
             f"Video encoding did not work. File not found: {video_path}. "
             f"Try running the command manually to debug: `{''.join(ffmpeg_cmd)}`"
         )
-
 
 @dataclass
 class VideoFrame:

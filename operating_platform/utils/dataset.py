@@ -825,11 +825,19 @@ def validate_episode_buffer(episode_buffer: dict, total_episodes: int, features:
     if "task" not in episode_buffer:
         raise ValueError("task key not found in episode_buffer")
 
-    if episode_buffer["episode_index"] != total_episodes:
-        # TODO(aliberts): Add option to use existing episode_index
-        raise NotImplementedError(
-            "You might have manually provided the episode_buffer with an episode_index that doesn't "
-            "match the total number of episodes already in the dataset. This is not supported for now."
+    # For async saving, episode_index may be >= total_episodes because:
+    # 1. Indices are pre-allocated before saving
+    # 2. Previous saves may have failed
+    # We only check that episode_index is not negative
+    episode_index = episode_buffer["episode_index"]
+    if episode_index < 0:
+        raise ValueError(f"episode_index must be non-negative, got {episode_index}")
+    # Allow episode_index >= total_episodes for async save (pre-allocated indices)
+    # Only warn if the gap is suspiciously large (more than 10 episodes ahead)
+    if episode_index > total_episodes + 10:
+        logging.warning(
+            f"episode_index ({episode_index}) is significantly ahead of total_episodes ({total_episodes}). "
+            "This may indicate a bug or data loss from failed saves."
         )
 
     if episode_buffer["size"] == 0:

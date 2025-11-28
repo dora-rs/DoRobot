@@ -197,10 +197,12 @@ class SO101Manipulator:
 
         self.leader_arms = {}
         self.leader_arms['main_leader'] = self.config.leader_arms["main"]
+        # self.leader_arms['second_leader'] = self.config.leader_arms["second"]
 
         self.follower_arms = {}
         self.follower_arms['main_follower'] = self.config.follower_arms["main"]
-
+        # self.follower_arms['second_follower'] = self.config.follower_arms["second"]
+        
         self.cameras = make_cameras_from_configs(self.config.cameras)
         
         self.connect_excluded_cameras = ["image_pika_pose"]

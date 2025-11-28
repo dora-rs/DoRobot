@@ -1,7 +1,9 @@
-"""TODO: Add docstring."""
+"""OpenCV Video Capture node for DORA dataflow."""
 
 import argparse
+import atexit
 import os
+import signal
 import time
 
 import cv2
@@ -13,8 +15,37 @@ RUNNER_CI = True if os.getenv("CI") == "true" else False
 
 FLIP = os.getenv("FLIP", "")
 
+# Global reference for cleanup
+_video_capture = None
+
+
+def cleanup_video_capture():
+    """Release video capture on exit."""
+    global _video_capture
+    if _video_capture is not None:
+        try:
+            _video_capture.release()
+            print("[camera_opencv] VideoCapture released")
+        except Exception as e:
+            print(f"[camera_opencv] Error releasing VideoCapture: {e}")
+        _video_capture = None
+
+
+def signal_handler(signum, frame):
+    """Handle SIGINT/SIGTERM to ensure cleanup."""
+    print(f"[camera_opencv] Received signal {signum}, cleaning up...")
+    cleanup_video_capture()
+    exit(0)
+
 
 def main():
+    global _video_capture
+
+    # Register cleanup handlers
+    atexit.register(cleanup_video_capture)
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
     # Handle dynamic nodes, ask for the name of the node in the dataflow, and the same values as the ENV variables.
     """TODO: Add docstring."""
     parser = argparse.ArgumentParser(
@@ -59,6 +90,7 @@ def main():
         video_capture_path = int(video_capture_path)
 
     video_capture = cv2.VideoCapture(video_capture_path)
+    _video_capture = video_capture  # Store globally for cleanup
 
     image_width = os.getenv("IMAGE_WIDTH", args.image_width)
 
@@ -141,9 +173,24 @@ def main():
 
                 node.send_output("image", storage, metadata)
 
+        elif event_type == "STOP":
+            print("[camera_opencv] Received STOP event, cleaning up...")
+            cleanup_video_capture()
+            break
+
         elif event_type == "ERROR":
+            cleanup_video_capture()
             raise RuntimeError(event["error"])
+
+    # Final cleanup (in case loop exits without STOP event)
+    cleanup_video_capture()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"[camera_opencv] Error in main: {e}")
+        cleanup_video_capture()
+    finally:
+        cleanup_video_capture()
