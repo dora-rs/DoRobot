@@ -1,219 +1,297 @@
 # DoRobot-Test
 
->  Dora LeRobot  Version
+> Dora LeRobot Version - A robotics operating platform for robot control, data collection, and policy training.
 
-## 0. Start (with Docker) coming soon
+## Quick Start
 
-<!-- get this project
+### Get the Project
 
-```sh
-git cloen https://github.com/DoRobot-Project/Operating-Platform.git
-cd Operating-Platform
-```
-
-build docker image
-```sh
-docker build -f docker/Dockerfile.base -t operating-platform:V1.0 .
-```
-
-make dir
-```sh
-mkdir /data/hf
-```
-
-run sh
-```sh
-sh docker/start.sh
-```
-
-
-[tool.uv.sources]
-lerobot_lite = { path = "operating_platform/lerobot_lite"} -->
-
-## 1. Start (without Docker)
-
-get this project
-
-```sh
+```bash
 git clone https://github.com/ustbxcj/DoRobotTest.git
 cd DoRobotTest
 ```
 
-### 1.1. Initital DoRobot enviroment
+### Automated Environment Setup (Recommended)
 
-creat conda env
+Use the setup script to create a unified conda environment with all dependencies:
 
-```sh
-conda create --name op python==3.11
+```bash
+# Core only - for data collection (fastest install)
+bash scripts/setup_env.sh
+
+# With training dependencies (for policy training)
+bash scripts/setup_env.sh --training
+
+# With CUDA support
+bash scripts/setup_env.sh --cuda 12.4
+
+# With CUDA + training
+bash scripts/setup_env.sh --cuda 12.4 --training
+
+# With Ascend NPU support (310B)
+bash scripts/setup_env.sh --npu
+
+# NPU + training
+bash scripts/setup_env.sh --npu --training
+
+# All dependencies
+bash scripts/setup_env.sh --all
 ```
 
-activate conda env
+**Setup Options:**
 
-```sh
-conda activate op
+| Option | Description |
+|--------|-------------|
+| `--name NAME` | Environment name (default: dorobot) |
+| `--python VER` | Python version (default: 3.11) |
+| `--device DEVICE` | Device: cpu, cuda11.8, cuda12.1, cuda12.4, npu |
+| `--cuda VER` | CUDA version shorthand (11.8, 12.1, 12.4) |
+| `--npu` | Enable Ascend NPU support |
+| `--torch-npu VER` | torch-npu version (default: 2.5.1) |
+| `--extras EXTRAS` | Optional deps: training, simulation, tensorflow, all |
+| `--training` | Shorthand for --extras training |
+| `--all` | Install all optional dependencies |
+
+**Dependency Groups:**
+
+| Group | Packages | Use Case |
+|-------|----------|----------|
+| (none) | Core only | Data collection, robot control (fastest) |
+| `training` | diffusers, wandb, matplotlib, numba | Policy training |
+| `simulation` | gymnasium, pymunk, gym-pusht | Simulation environments |
+| `tensorflow` | tensorflow, tensorflow-datasets | TF dataset formats |
+| `all` | Everything | Full installation |
+
+### Manual Environment Setup (Alternative)
+
+#### 1.1 Initialize DoRobot Environment
+
+```bash
+# Create and activate conda environment
+conda create --name dorobot python==3.11
+conda activate dorobot
+
+# Install the project (choose one)
+pip install -e .                    # Core only (fastest, for data collection)
+pip install -e ".[training]"        # Core + training dependencies
+pip install -e ".[simulation]"      # Core + simulation environments
+pip install -e ".[all]"             # Everything
+
+# Install DORA-RS
+pip install dora-rs-cli
+
+# Install robot dependencies
+cd operating_platform/robot/robots/so101_v1 && pip install -e .
+cd operating_platform/robot/components/arm_normal_so101_v1 && pip install -e .
 ```
 
-install this project
+#### 1.2 Install PyTorch (Choose Your Platform)
 
-```sh
-pip install -e .
-```
-
-**install pytorch, according to your platform**
-
-```sh
-# ROCM 6.1 (Linux only)
-pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/rocm6.1
-# ROCM 6.2.4 (Linux only)
-pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/rocm6.2.4
+**CUDA:**
+```bash
 # CUDA 11.8
-pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu118
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# CUDA 12.1
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
 # CUDA 12.4
-pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
-# CUDA 12.6
-pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu126
-# CPU only
-pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cpu
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 ```
 
-install libportaudio2
-
+**CPU Only:**
+```bash
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 ```
+
+**Ascend NPU (310B):**
+```bash
+# Install PyTorch 2.5.1 (CPU version, compatible with torch-npu)
+pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+
+# Install torch-npu
+pip install torch-npu==2.5.1
+```
+
+> **NPU Prerequisites:** CANN toolkit must be installed. Visit [Huawei Ascend](https://www.hiascend.com/software/cann) for installation instructions.
+
+#### 1.3 Install System Dependencies (Linux)
+
+```bash
 sudo apt install libportaudio2
 ```
 
-### 1.2. Initital SO101 enviroment
+## SO101 Robot Operations
 
-Open a new terminal and switch to the DoRobot-Preview project directory.
+### 2.1 Calibrate SO101 Arm
 
-creat conda env
+Calibration files are stored in `arm_normal_so101_v1/.calibration`
 
-```sh
-conda create --name dr-robot-so101 python==3.10
-```
-
-activate conda env
-
-```sh
-conda activate dr-robot-so101
-```
-
-install robot enviroment
-
-```sh
-cd operating_platform/robot/robots/so101_v1
-pip install -e .
-```
-
-### 1.3. Calibrate SO101 Arm
-对1号臂进行矫正
-```
-calibrate leader arm1---矫正1号臂主动臂
-```
+**Calibrate Arm 1:**
+```bash
 cd operating_platform/robot/components/arm_normal_so101_v1/
+
+# Calibrate leader arm 1
 dora run dora_calibrate_leader.yml
-```
 
-calibrate follower arm1---矫正1号臂从动臂
-```
-cd operating_platform/robot/components/arm_normal_so101_v1/
+# Calibrate follower arm 1
 dora run dora_calibrate_follower.yml
 ```
 
-
-对2号臂进行矫正
-```
-calibrate leader arm2---矫正2号臂主动臂
-```
+**Calibrate Arm 2:**
+```bash
 cd operating_platform/robot/components/arm_normal_so101_v1/
+
+# Calibrate leader arm 2
 dora run dora_calibrate_leader2.yml
-```
 
-calibrate follower arm2---矫正2号臂从动臂
-```
-cd operating_platform/robot/components/arm_normal_so101_v1/
+# Calibrate follower arm 2
 dora run dora_calibrate_follower2.yml
 ```
-矫正文件存储在arm_normal_so101_v1/.calibration
-## 2. Teleoperate SO101 Arm
 
-```
+### 2.2 Teleoperate SO101 Arm
+
+```bash
 cd operating_platform/robot/components/arm_normal_so101_v1/
 dora run dora_teleoperate_arm.yml
 ```
 
-## 3. Record Data
+## Data Recording
 
-You need to unplug all camera and robotic arm data interfaces first, then plug in the head camera.
+### 3.1 Hardware Connection Order
 
-```
-ls /dev/video*
-```
+**Important:** Follow this order to ensure correct device indices.
 
-you can see:
+1. **Disconnect all devices** (cameras and robotic arms)
 
-```
-/dev/video0 /dev/video1
-```
+2. **Connect head camera first:**
+   ```bash
+   ls /dev/video*
+   # Should see: /dev/video0 /dev/video1
+   ```
 
-If you see other indices, please make sure that all other cameras have been disconnected from the computer. If you are unable to remove them, please modify the camera index in the YAML file. 
+3. **Connect wrist camera:**
+   ```bash
+   ls /dev/video*
+   # Should see: /dev/video0 /dev/video1 /dev/video2 /dev/video3
+   ```
 
-then plug in the head camera.
+4. **Connect leader arm:**
+   ```bash
+   ls /dev/ttyACM*
+   # Should see: /dev/ttyACM0
+   ```
 
-```
-ls /dev/video*
-```
+5. **Connect follower arm:**
+   ```bash
+   ls /dev/ttyACM*
+   # Should see: /dev/ttyACM0 /dev/ttyACM1
+   ```
 
-you can see:
+### 3.2 Start Data Collection
 
-```
-/dev/video0 /dev/video1 /dev/video2 /dev/video3
-```
+**Single Command (Recommended):**
+```bash
+# Basic usage - starts both DORA and CLI automatically
+bash scripts/run_so101.sh
 
-now, you finish camera connect.
+# With custom dataset name
+REPO_ID=my-dataset bash scripts/run_so101.sh
 
-Next, connect the robotic arm by first plugging in the leader arm's USB interface.
+# With custom task description
+REPO_ID=my-dataset SINGLE_TASK="pick up the cube" bash scripts/run_so101.sh
 
-```
-ls /dev/ttyACM*
-```
-
-you can see:
-
-```
-/dev/ttyACM0
-```
-
-Then plugging in the follower arm's USB interface.
-
-```
-ls /dev/ttyACM*
-```
-
-you can see:
-
-```
-/dev/ttyACM0 /dev/ttyACM1
+# With Ascend NPU support
+USE_NPU=1 bash scripts/run_so101.sh
 ```
 
-run dora data flow 
+**Manual Two-Terminal Method (Alternative):**
 
-```
+Terminal 1 - Start DORA dataflow:
+```bash
+conda activate dorobot
 cd operating_platform/robot/robots/so101_v1
-conda activate dr-robot-so101
 dora run dora_teleoperate_dataflow.yml
 ```
 
-Open a new terminal, then:
-
-```
+Terminal 2 - Start recording CLI:
+```bash
+conda activate dorobot
 bash scripts/run_so101_cli.sh
 ```
 
-You can modify the task name and task description by adjusting the parameters within the run_so101_cli.sh file.
+### 3.3 Recording Controls
 
+| Key | Action |
+|-----|--------|
+| `n` | Save current episode and start new one |
+| `e` | Stop recording and exit |
 
+## Training
 
+```bash
+conda activate dorobot
 
-# Acknowledgment
- - LeRobot 🤗: [https://github.com/huggingface/lerobot](https://github.com/huggingface/lerobot)
+python operating_platform/core/train.py \
+  --dataset.repo_id="/path/to/dataset" \
+  --policy.type=act \
+  --output_dir=outputs/train/act_so101_test \
+  --job_name=act_so101_test \
+  --policy.device=cuda \
+  --wandb.enable=false
+```
+
+**For NPU training:**
+```bash
+python operating_platform/core/train.py \
+  --dataset.repo_id="/path/to/dataset" \
+  --policy.type=act \
+  --policy.device=npu \
+  ...
+```
+
+## Inference
+
+```bash
+conda activate dorobot
+
+python operating_platform/core/inference.py \
+  --robot.type=so101 \
+  --inference.single_task="task description" \
+  --inference.dataset.repo_id="/path/to/dataset" \
+  --policy.path="/path/to/checkpoint/pretrained_model"
+```
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CONDA_ENV` | `dorobot` | Conda environment name |
+| `REPO_ID` | `so101-test` | Dataset repository ID |
+| `SINGLE_TASK` | `start and test so101 arm.` | Task description |
+| `USE_NPU` | `0` | Set to `1` for Ascend NPU support |
+| `ASCEND_TOOLKIT_PATH` | `/usr/local/Ascend/ascend-toolkit` | CANN toolkit path |
+
+## Project Structure
+
+```
+DoRobotTest/
+├── operating_platform/
+│   ├── core/           # Main pipelines (record, train, inference)
+│   ├── robot/          # Robot hardware abstraction
+│   │   ├── robots/     # Robot configurations (so101_v1, aloha_v1)
+│   │   └── components/ # Hardware components (arms, cameras)
+│   ├── policy/         # Policy implementations (ACT, Diffusion, etc.)
+│   ├── dataset/        # Dataset management
+│   └── utils/          # Utility functions
+├── scripts/            # Launch scripts
+│   ├── setup_env.sh    # Environment setup
+│   ├── run_so101.sh    # Unified launcher
+│   └── run_so101_cli.sh
+└── docs/               # Documentation
+```
+
+## Acknowledgment
+
+- LeRobot: [https://github.com/huggingface/lerobot](https://github.com/huggingface/lerobot)
+- DORA-RS: [https://github.com/dora-rs/dora](https://github.com/dora-rs/dora)

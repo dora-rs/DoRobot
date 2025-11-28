@@ -38,6 +38,10 @@ lock = threading.Lock()  # 线程锁
 running_recv_image_server = True
 running_recv_joint_server = True
 
+# Connection state tracking
+_image_connected = False
+_joint_connected = False
+
 zmq_context = zmq.Context()
 
 socket_image = zmq_context.socket(zmq.PAIR)
@@ -62,6 +66,7 @@ def so101_zmq_send(event_id, buffer, wait_time_s):
 
 def recv_image_server():
     """接收数据线程"""
+    global _image_connected
     while running_recv_image_server:
         try:
             message_parts = socket_image.recv_multipart()
@@ -72,9 +77,11 @@ def recv_image_server():
             buffer_bytes = message_parts[1]
             metadata = json.loads(message_parts[2].decode('utf-8'))
 
-            # print(f"Received event_id = {event_id}")
-            # print(f"len(message_parts) = {len(message_parts)}")
-            
+            # Mark as connected on first successful receive
+            if not _image_connected:
+                _image_connected = True
+                print("[SO101] Camera data stream connected")
+
             if 'image' in event_id:
                 # 解码图像
                 img_array = np.frombuffer(buffer_bytes, dtype=np.uint8)
@@ -96,24 +103,25 @@ def recv_image_server():
                 elif encoding in ["jpeg", "jpg", "jpe", "bmp", "webp", "png"]:
                     channels = 3
                     frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-                
+
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                
+
                 if frame is not None:
                     with lock:
                         # print(f"Received event_id = {event_id}")
                         recv_images[event_id] = frame
 
         except zmq.Again:
-            print(f"SO101 Image Received Timeout")
+            # Timeout waiting for data, silently continue
             continue
         except Exception as e:
-            print("recv image error:", e)
+            print("[SO101] recv image error:", e)
             break
 
 
 def recv_joint_server():
     """接收数据线程"""
+    global _joint_connected
     while running_recv_joint_server:
         try:
             message_parts = socket_joint.recv_multipart()
@@ -122,6 +130,11 @@ def recv_joint_server():
 
             event_id = message_parts[0].decode('utf-8')
             buffer_bytes = message_parts[1]
+
+            # Mark as connected on first successful receive
+            if not _joint_connected:
+                _joint_connected = True
+                print("[SO101] Joint data stream connected")
 
             if 'joint' in event_id:
                 joint_array = np.frombuffer(buffer_bytes, dtype=np.float32)
@@ -133,10 +146,10 @@ def recv_joint_server():
                         recv_joint[event_id] = joint_array
 
         except zmq.Again:
-            print(f"SO101 Joint Received Timeout")
+            # Timeout waiting for data, silently continue
             continue
         except Exception as e:
-            print("recv joint error:", e)
+            print("[SO101] recv joint error:", e)
             break
 
 

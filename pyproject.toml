@@ -1,45 +1,79 @@
 [project]
 name = "DoRobot-Preview"
 version = "0.1.0"
-description = ""
+description = "Robotics operating platform for robot control, data collection, and policy training"
 readme = "README.md"
 authors = [
     { name = "Xiang Yang", email = "ryu-yang@qq.com" }
 ]
 requires-python = ">=3.11,<4.0"
+
+# Core dependencies - minimal set for data collection
 dependencies = [
+    # Web/networking
     "gevent>=25.5.1,<26.0.0",
     "flask-cors>=6.0.1,<7.0.0",
-    "pyzmq>=27.0.0,<28.0.0",
-    "pynput>=1.8.1,<2.0.0",
+    "flask==3.0.3",
+    "flask-socketio>=5.5.1,<6.0.0",
     "python-socketio>=5.13.0,<6.0.0",
     "websocket-client>=1.8.0,<2.0.0",
-    "schedule>=1.2.2,<2.0.0",
+
+    # Communication
+    "pyzmq>=27.0.0,<28.0.0",
+
+    # Input/control
+    "pynput>=1.8.1,<2.0.0",
+
+    # Data handling
     "pillow>=11.2.1,<12.0.0",
     "datasets>=3.6.0,<4.0.0",
     "jsonlines>=4.0.0,<5.0.0",
     "huggingface-hub>=0.33.0,<0.34.0",
-    "gymnasium>=1.1.1,<2.0.0",
-    "einops>=0.8.1,<0.9.0",
-    "safetensors>=0.5.3,<0.6.0",
     "imageio[ffmpeg]>=2.37.0,<3.0.0",
-    "diffusers>=0.33.1,<0.34.0",
-    "pymunk>=7.0.1,<8.0.0",
-    "gym-pusht>=0.1.5,<0.2.0",
-    "imagecodecs>=2025.3.30,<2026.0.0",
-    "tensorflow>=2.19.0,<3.0.0",
-    "tensorflow-datasets>=4.9.9,<5.0.0",
-    "draccus>=0.10.0,<0.11.0",
-    "flask==3.0.3",
-    "deepdiff>=8.5.0,<9.0.0",
+    "safetensors>=0.5.3,<0.6.0",
     "zarr>=3.0.8,<4.0.0",
-    "numba>=0.61.2,<0.62.0",
-    "flask-socketio>=5.5.1,<6.0.0",
-    "matplotlib>=3.10.3",
+
+    # Config/utilities
+    "draccus>=0.10.0,<0.11.0",
+    "deepdiff>=8.5.0,<9.0.0",
+    "schedule>=1.2.2,<2.0.0",
+    "termcolor",
+
+    # Audio (for recording)
     "sounddevice",
     "soundfile",
+
+    # Math/array operations (lightweight)
+    "einops>=0.8.1,<0.9.0",
+]
+
+[project.optional-dependencies]
+# Training dependencies - for policy training
+training = [
+    "diffusers>=0.33.1,<0.34.0",
+    "wandb",
+    "matplotlib>=3.10.3",
     "seaborn",
-    "wandb"
+    "numba>=0.61.2,<0.62.0",
+    "imagecodecs>=2025.3.30,<2026.0.0",
+]
+
+# Simulation dependencies - for gym environments
+simulation = [
+    "gymnasium>=1.1.1,<2.0.0",
+    "pymunk>=7.0.1,<8.0.0",
+    "gym-pusht>=0.1.5,<0.2.0",
+]
+
+# TensorFlow dependencies - only if needed for specific dataset formats
+tensorflow = [
+    "tensorflow>=2.19.0,<3.0.0",
+    "tensorflow-datasets>=4.9.9,<5.0.0",
+]
+
+# All dependencies
+all = [
+    "DoRobot-Preview[training,simulation,tensorflow]",
 ]
 
 [tool.setuptools]
