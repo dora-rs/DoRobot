@@ -89,9 +89,19 @@ class Daemon:
 
     
     def stop(self):
-        # self.running = False
-        # self.thread.join()
-        pass
+        """Stop the daemon and disconnect robot hardware."""
+        self.running = False
+
+        # Disconnect robot to stop hardware communication
+        # This prevents errors when arm/camera components lose connection
+        if hasattr(self, 'robot') and self.robot is not None:
+            try:
+                if self.robot.is_connected:
+                    logging.info("[Daemon] Disconnecting robot...")
+                    self.robot.disconnect()
+                    logging.info("[Daemon] Robot disconnected")
+            except Exception as e:
+                logging.warning(f"[Daemon] Error during robot disconnect: {e}")
 
     def update(self):
         # while self.running:

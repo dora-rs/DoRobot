@@ -2,6 +2,7 @@ import os
 import contextlib
 import logging
 import shutil
+import threading
 from pathlib import Path
 from typing import Callable
 
@@ -86,6 +87,9 @@ class DoRobotDatasetMetadata:
         self.repo_id = repo_id
         self.revision = revision if revision else DOROBOT_DATASET_VERSION
         self.root = Path(root) if root is not None else DOROBOT_DATASET / repo_id
+
+        # Thread safety: lock for metadata updates (async save compatibility)
+        self._meta_lock = threading.Lock()
 
         try:
             if force_cache_sync:
@@ -253,20 +257,22 @@ class DoRobotDatasetMetadata:
     def add_task(self, task: str):
         """
         Given a task in natural language, add it to the dictionary of tasks.
+        Thread-safe via _meta_lock.
         """
-        if task in self.task_to_task_index:
-            raise ValueError(f"The task '{task}' already exists and can't be added twice.")
+        with self._meta_lock:
+            if task in self.task_to_task_index:
+                raise ValueError(f"The task '{task}' already exists and can't be added twice.")
 
-        task_index = self.info["total_tasks"]
-        self.task_to_task_index[task] = task_index
-        self.tasks[task_index] = task
-        self.info["total_tasks"] += 1
+            task_index = self.info["total_tasks"]
+            self.task_to_task_index[task] = task_index
+            self.tasks[task_index] = task
+            self.info["total_tasks"] += 1
 
-        task_dict = {
-            "task_index": task_index,
-            "task": task,
-        }
-        append_jsonlines(task_dict, self.root / TASKS_PATH)
+            task_dict = {
+                "task_index": task_index,
+                "task": task,
+            }
+            append_jsonlines(task_dict, self.root / TASKS_PATH)
 
     def save_episode(
         self,
@@ -275,31 +281,36 @@ class DoRobotDatasetMetadata:
         episode_tasks: list[str],
         episode_stats: dict[str, dict],
     ) -> None:
-        self.info["total_episodes"] += 1
-        self.info["total_frames"] += episode_length
+        """
+        Save episode metadata to disk.
+        Thread-safe via _meta_lock for async save compatibility.
+        """
+        with self._meta_lock:
+            self.info["total_episodes"] += 1
+            self.info["total_frames"] += episode_length
 
-        chunk = self.get_episode_chunk(episode_index)
-        if chunk >= self.total_chunks:
-            self.info["total_chunks"] += 1
+            chunk = self.get_episode_chunk(episode_index)
+            if chunk >= self.total_chunks:
+                self.info["total_chunks"] += 1
 
-        self.info["splits"] = {"train": f"0:{self.info['total_episodes']}"}
-        self.info["total_videos"] += len(self.video_keys)
-        if len(self.video_keys) > 0:
-            self.update_video_info()
+            self.info["splits"] = {"train": f"0:{self.info['total_episodes']}"}
+            self.info["total_videos"] += len(self.video_keys)
+            if len(self.video_keys) > 0:
+                self.update_video_info()
 
-        write_info(self.info, self.root)
+            write_info(self.info, self.root)
 
-        episode_dict = {
-            "episode_index": episode_index,
-            "tasks": episode_tasks,
-            "length": episode_length,
-        }
-        self.episodes[episode_index] = episode_dict
-        write_episode(episode_dict, self.root)
+            episode_dict = {
+                "episode_index": episode_index,
+                "tasks": episode_tasks,
+                "length": episode_length,
+            }
+            self.episodes[episode_index] = episode_dict
+            write_episode(episode_dict, self.root)
 
-        self.episodes_stats[episode_index] = episode_stats
-        self.stats = aggregate_stats([self.stats, episode_stats]) if self.stats else episode_stats
-        write_episode_stats(episode_index, episode_stats, self.root)
+            self.episodes_stats[episode_index] = episode_stats
+            self.stats = aggregate_stats([self.stats, episode_stats]) if self.stats else episode_stats
+            write_episode_stats(episode_index, episode_stats, self.root)
 
     def remove_episode(self, ep_index: int) -> None:
     #     episode_tasks: list[str],
@@ -368,6 +379,9 @@ class DoRobotDatasetMetadata:
         obj = cls.__new__(cls)
         obj.repo_id = repo_id
         obj.root = Path(root) if root is not None else DOROBOT_DATASET / repo_id
+
+        # Thread safety: lock for metadata updates (async save compatibility)
+        obj._meta_lock = threading.Lock()
 
         obj.root.mkdir(parents=True, exist_ok=True)
 
@@ -868,7 +882,23 @@ class DoRobotDataset(torch.utils.data.Dataset):
 
         # Automatically add frame_index and timestamp to episode buffer
         frame_index = self.episode_buffer["size"]
-        timestamp = frame.pop("timestamp") if "timestamp" in frame else frame_index / self.fps
+
+        # IMPORTANT: Always calculate timestamp from frame_index to ensure consistency.
+        # Do NOT use timestamp from frame dict as it could be stale or from wrong episode.
+        # This prevents timestamp sync errors during training.
+        timestamp = frame_index / self.fps
+
+        # Validation: Ensure timestamps are monotonically increasing within episode
+        if len(self.episode_buffer["timestamp"]) > 0:
+            last_timestamp = self.episode_buffer["timestamp"][-1]
+            if timestamp <= last_timestamp:
+                logging.warning(
+                    f"[Dataset] Timestamp anomaly detected! frame_index={frame_index}, "
+                    f"calculated_ts={timestamp:.4f}, last_ts={last_timestamp:.4f}, "
+                    f"episode_idx={self.episode_buffer.get('episode_index', '?')}, "
+                    f"buffer_size={self.episode_buffer['size']}"
+                )
+
         self.episode_buffer["frame_index"].append(frame_index)
         self.episode_buffer["timestamp"].append(timestamp)
         self.episode_buffer["task"].append(task)
@@ -902,7 +932,15 @@ class DoRobotDataset(torch.utils.data.Dataset):
                 save the current episode in self.episode_buffer, which is filled with 'add_frame'. Defaults to
                 None.
         """
-        if not episode_data:
+        import copy
+
+        if episode_data:
+            # IMPORTANT: Deep copy to preserve original buffer for retry compatibility.
+            # The async saver may retry failed saves, and we use .pop() below which
+            # modifies the buffer. Without this copy, retries would fail with
+            # "size key not found in episode_buffer" because keys were already popped.
+            episode_buffer = copy.deepcopy(episode_data)
+        else:
             episode_buffer = self.episode_buffer
 
         validate_episode_buffer(episode_buffer, self.meta.total_episodes, self.features)
@@ -932,10 +970,17 @@ class DoRobotDataset(torch.utils.data.Dataset):
                 continue
             episode_buffer[key] = np.stack(episode_buffer[key])
 
-        self.stop_audio_writer()
-        self.wait_audio_writer()
+        # IMPORTANT: Only stop audio writer in synchronous mode (episode_data is None)
+        # When called from async worker (episode_data provided), the recording thread
+        # is still recording and using the shared audio_writer. Stopping it here would
+        # break audio recording for subsequent episodes.
+        if not episode_data:
+            self.stop_audio_writer()
+            self.wait_audio_writer()
 
-        self._wait_image_writer()
+        # Wait for THIS episode's images only (not all images in the queue)
+        # This is critical for async save to work in parallel during recording
+        self._wait_episode_images(episode_index, episode_length)
         self._save_episode_table(episode_buffer, episode_index)
         ep_stats = compute_episode_stats(episode_buffer, self.features)
 
@@ -957,21 +1002,31 @@ class DoRobotDataset(torch.utils.data.Dataset):
             self.tolerance_s,
         )
 
+        # NOTE: Removed file count assertions for async save compatibility.
+        # With async save, episodes may be saved out of order or have failed saves,
+        # so total file counts may not match num_episodes. Instead, we just verify
+        # that THIS episode's files were created successfully.
+        episode_parquet = self.root / self.meta.get_data_file_path(ep_index=episode_index)
+        if not episode_parquet.exists():
+            raise RuntimeError(f"Failed to create parquet file for episode {episode_index}: {episode_parquet}")
+
         if len(self.meta.video_keys) > 0:
-            video_files = list(self.root.rglob("*.mp4"))
-            assert len(video_files) == self.num_episodes * len(self.meta.video_keys)
+            for key in self.meta.video_keys:
+                episode_video = self.root / self.meta.get_video_file_path(episode_index, key)
+                if not episode_video.exists():
+                    raise RuntimeError(f"Failed to create video file for episode {episode_index}: {episode_video}")
 
-        parquet_files = list(self.root.rglob("*.parquet"))
-        assert len(parquet_files) == self.num_episodes
-
-        # delete images
+        # delete images for THIS episode only (not the entire images/ folder!)
+        # Image path format: images/{image_key}/episode_{episode_index:06d}/frame_{frame_index:06d}.png
+        # We want to delete episode_XXXXXX/ directory, which is .parent of the frame file
         if len(self.meta.video_keys) > 0:
             for key in self.meta.video_keys:
                 img_dir = self._get_image_file_path(
                     episode_index=episode_index, image_key=key, frame_index=0
-                ).parent.parent.parent
+                ).parent  # This is episode_XXXXXX/ folder, NOT images/ folder
                 if img_dir.is_dir():
                     shutil.rmtree(img_dir)
+                    logging.debug(f"Deleted images for episode {episode_index}: {img_dir}")
 
 
         if not episode_data:  # Reset the buffer
@@ -980,78 +1035,40 @@ class DoRobotDataset(torch.utils.data.Dataset):
         return episode_index
 
     def remove_episode(self, ep_idx: int):
-        print(f"[DEBUG] 开始删除剧集: ep_idx={ep_idx}")
-        
+        """Remove an episode and all its associated files."""
+        logging.info(f"[Dataset] Removing episode {ep_idx}")
+
         if ep_idx == 0 and self.meta.total_episodes == 1:
-            print(f"[WARNING] dorobot_dataset.py remove_episode(): 检测到 ep_idx=0，即将删除整个目录树: {self.root}")
+            logging.warning(f"[Dataset] Removing entire dataset directory: {self.root}")
             shutil.rmtree(self.root)
-            print(f"[INFO] 目录树 {self.root} 已删除")
             return
 
-        # 处理视频文件
-        if len(self.meta.video_keys) > 0:
-            print(f"[INFO] 正在处理视频文件 (keys: {self.meta.video_keys})")
-            for key in self.meta.video_keys:
-                video_path = self.root / self.meta.get_video_file_path(ep_idx, key)
-                if os.path.isfile(video_path):
-                    print(f"[DEBUG] 删除视频文件: {video_path}")
-                    os.remove(video_path)
-                    # 验证删除结果
-                    if not os.path.exists(video_path):
-                        print(f"[SUCCESS] 成功删除视频文件: {video_path}")
-                    else:
-                        print(f"[ERROR] 删除失败！文件仍存在: {video_path}")
-                else:
-                    print(f"[SKIP] 视频文件不存在，跳过删除: {video_path}")
+        # Remove video files
+        for key in self.meta.video_keys:
+            video_path = self.root / self.meta.get_video_file_path(ep_idx, key)
+            if os.path.isfile(video_path):
+                os.remove(video_path)
 
-        # 处理图片文件
-        if len(self.meta.image_keys) > 0:
-            print(f"[INFO] 正在处理图片文件 (keys: {self.meta.image_keys})")
-            for key in self.meta.image_keys:
-                image_dir = self.root / self._get_image_file_path(ep_idx, key, frame_index=0).parent
-                if os.path.isdir(image_dir):
-                    print(f"[DEBUG] 删除图片文件夹: {image_dir}")
-                    shutil.rmtree(image_dir)
-                    # 验证删除结果
-                    if not os.path.exists(image_dir):
-                        print(f"[SUCCESS] 成功删除图片文件夹: {image_dir}")
-                    else:
-                        print(f"[ERROR] 删除失败！图片文件夹仍存在: {image_dir}")
-                else:
-                    print(f"[SKIP] 图片文件夹不存在，跳过删除: {image_dir}")
+        # Remove image directories
+        for key in self.meta.image_keys:
+            image_dir = self.root / self._get_image_file_path(ep_idx, key, frame_index=0).parent
+            if os.path.isdir(image_dir):
+                shutil.rmtree(image_dir)
 
-        # 处理音频文件
-        if len(self.meta.mic_keys) > 0:
-            print(f"[INFO] 正在处理音频文件 (keys: {self.meta.mic_keys})")
-            for key in self.meta.mic_keys:
-                audio_path = self.root / self.meta.get_audio_file_path(ep_idx, key)
-                if os.path.isfile(audio_path):
-                    print(f"[DEBUG] 删除音频文件: {audio_path}")
-                    os.remove(audio_path)
-                    # 验证删除结果
-                    if not os.path.exists(audio_path):
-                        print(f"[SUCCESS] 成功删除音频文件: {audio_path}")
-                    else:
-                        print(f"[ERROR] 删除失败！文件仍存在: {audio_path}")
-                else:
-                    print(f"[SKIP] 视频文件不存在，跳过删除: {audio_path}")
+        # Remove audio files
+        for key in self.meta.mic_keys:
+            audio_path = self.root / self.meta.get_audio_file_path(ep_idx, key)
+            if os.path.isfile(audio_path):
+                os.remove(audio_path)
 
-        # 处理数据文件
+        # Remove data file
         data_path = self.root / self.meta.get_data_file_path(ep_idx)
         if os.path.isfile(data_path):
-            print(f"[DEBUG] 删除数据文件: {data_path}")
             os.remove(data_path)
-            if not os.path.exists(data_path):
-                print(f"[SUCCESS] 成功删除数据文件: {data_path}")
-            else:
-                print(f"[ERROR] 删除失败！文件仍存在: {data_path}")
-        else:
-            print(f"[SKIP] 数据文件不存在，跳过删除: {data_path}")
 
-        # 最后移除元数据
-        print(f"[INFO] 即将从元数据中移除 ep_idx={ep_idx}")
+        # Remove metadata
         self.meta.remove_episode(ep_idx)
-        print(f"[SUCCESS] 剧集 {ep_idx} 已完全删除")
+        logging.info(f"[Dataset] Episode {ep_idx} removed")
 
     def _save_episode_table(self, episode_buffer: dict, episode_index: int) -> None:
         episode_dict = {key: episode_buffer[key] for key in self.hf_features}
@@ -1070,7 +1087,7 @@ class DoRobotDataset(torch.utils.data.Dataset):
         self.wait_audio_writer()
 
         if episode_index == 0 and self.meta.total_episodes == 0:
-            print(f"[WARNING] dorobot_dataset.py clear_episode_buffer(): 检测到 ep_idx=0，即将删除整个目录树: {self.root}")
+            logging.warning(f"[Dataset] Clearing buffer: removing entire directory {self.root}")
             shutil.rmtree(self.root)
         else:
             if self.image_writer is not None:
@@ -1113,9 +1130,79 @@ class DoRobotDataset(torch.utils.data.Dataset):
             self.image_writer = None
 
     def _wait_image_writer(self) -> None:
-        """Wait for asynchronous image writer to finish."""
+        """Wait for asynchronous image writer to finish ALL images."""
         if self.image_writer is not None:
             self.image_writer.wait_until_done()
+
+    def _wait_episode_images(self, episode_index: int, episode_length: int, timeout_s: float | None = None) -> None:
+        """
+        Wait for a specific episode's images to be written.
+
+        This method waits only for the images of the specified episode, not all images
+        in the queue. This is critical for async save to work correctly during recording.
+
+        Args:
+            episode_index: The episode index to wait for
+            episode_length: Expected number of frames in this episode
+            timeout_s: Maximum time to wait in seconds. If None, calculates dynamically
+                       based on episode length and number of cameras.
+        """
+        import time
+
+        if self.image_writer is None:
+            return
+
+        if episode_length == 0:
+            return
+
+        camera_keys = self.meta.camera_keys
+        if len(camera_keys) == 0:
+            return
+
+        # Calculate dynamic timeout if not specified
+        # Allow 0.5 seconds per image as a conservative estimate, with a minimum of 120 seconds
+        # For a 20 second recording at 30fps with 2 cameras: 600 frames * 2 cameras * 0.5s = 600 seconds
+        if timeout_s is None:
+            num_images = episode_length * len(camera_keys)
+            timeout_s = max(120.0, num_images * 0.5)
+
+        start_time = time.time()
+        poll_interval = 0.1  # Check every 100ms
+
+        logging.debug(f"[_wait_episode_images] Waiting for episode {episode_index} images ({episode_length} frames, {len(camera_keys)} cameras, timeout={timeout_s:.0f}s)")
+
+        while time.time() - start_time < timeout_s:
+            all_complete = True
+
+            for key in camera_keys:
+                img_dir = self._get_image_file_path(
+                    episode_index=episode_index, image_key=key, frame_index=0
+                ).parent
+
+                if not img_dir.is_dir():
+                    # Directory not created yet
+                    all_complete = False
+                    break
+
+                # Count PNG files in the directory
+                png_count = len(list(img_dir.glob("*.png")))
+                if png_count < episode_length:
+                    all_complete = False
+                    break
+
+            if all_complete:
+                elapsed = time.time() - start_time
+                logging.debug(f"[_wait_episode_images] Episode {episode_index} images ready (waited {elapsed:.2f}s)")
+                return
+
+            time.sleep(poll_interval)
+
+        # Timeout reached - log warning but continue anyway
+        elapsed = time.time() - start_time
+        logging.warning(
+            f"[_wait_episode_images] Timeout waiting for episode {episode_index} images "
+            f"after {elapsed:.1f}s. Proceeding with video encoding anyway."
+        )
 
     def encode_videos(self) -> None:
         """
@@ -1132,17 +1219,30 @@ class DoRobotDataset(torch.utils.data.Dataset):
         Note: `encode_video_frames` is a blocking call. Making it asynchronous shouldn't speedup encoding,
         since video encoding with ffmpeg is already using multithreading.
         """
+        import time
+
         video_paths = {}
+        num_videos = len(self.meta.video_keys)
+
+        if num_videos > 0:
+            logging.info(f"[VideoEncoder] Encoding {num_videos} videos for episode {episode_index}...")
+            start_time = time.time()
+
         for key in self.meta.video_keys:
             video_path = self.root / self.meta.get_video_file_path(episode_index, key)
             video_paths[key] = str(video_path)
             if video_path.is_file():
                 # Skip if video is already encoded. Could be the case when resuming data recording.
+                logging.debug(f"[VideoEncoder] Skipping {key} (already exists)")
                 continue
             img_dir = self._get_image_file_path(
                 episode_index=episode_index, image_key=key, frame_index=0
             ).parent
             encode_video_frames(img_dir, video_path, self.fps, overwrite=True)
+
+        if num_videos > 0:
+            elapsed = time.time() - start_time
+            logging.info(f"[VideoEncoder] Episode {episode_index} encoding complete ({elapsed:.1f}s)")
 
         return video_paths
     

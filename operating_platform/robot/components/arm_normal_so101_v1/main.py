@@ -2,6 +2,8 @@
 
 import os
 import time
+import atexit
+import signal
 
 import numpy as np
 import pyarrow as pa
@@ -11,6 +13,29 @@ from pathlib import Path
 
 from motors.feetech import FeetechMotorsBus, OperatingMode
 from motors import Motor, MotorCalibration, MotorNormMode
+
+
+# Global reference for cleanup
+_arm_bus = None
+
+
+def cleanup_arm_bus():
+    """Release arm bus (serial port) on exit."""
+    global _arm_bus
+    if _arm_bus is not None:
+        try:
+            _arm_bus.disconnect(disable_torque=True)
+            print(f"[{ARM_NAME}] Serial port released")
+        except Exception as e:
+            print(f"[{ARM_NAME}] Error releasing serial port: {e}")
+        _arm_bus = None
+
+
+def signal_handler(signum, frame):
+    """Handle SIGINT/SIGTERM to ensure cleanup."""
+    print(f"[{ARM_NAME}] Received signal {signum}, cleaning up...")
+    cleanup_arm_bus()
+    exit(0)
 
 
 GET_DEVICE_FROM = os.getenv("GET_DEVICE_FROM", "PORT") # SN or INDEX
@@ -57,6 +82,13 @@ def configure_leader(bus: FeetechMotorsBus) -> None:
 
 
 def main():
+    global _arm_bus
+
+    # Register cleanup handlers
+    atexit.register(cleanup_arm_bus)
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
     node = Node()
 
     use_degrees = env_to_bool(USE_DEGRESS)
@@ -88,6 +120,7 @@ def main():
     )
 
     arm_bus.connect()
+    _arm_bus = arm_bus  # Store globally for cleanup
 
     if ARM_ROLE == "follower":
         configure_follower(arm_bus)
@@ -128,8 +161,19 @@ def main():
             ctrl_frame -= 1
 
         elif event["type"] == "STOP":
+            print(f"[{ARM_NAME}] Received STOP event, cleaning up...")
+            cleanup_arm_bus()
             break
+
+    # Final cleanup (in case loop exits without STOP event)
+    cleanup_arm_bus()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"[{ARM_NAME}] Error in main: {e}")
+        cleanup_arm_bus()
+    finally:
+        cleanup_arm_bus()

@@ -2,10 +2,32 @@ import zmq
 import threading
 import pyarrow as pa
 import time
+import signal
+import atexit
 from dora import Node
 import numpy as np
 import queue
 import json
+
+
+def cleanup_zmq():
+    """Clean up ZeroMQ sockets and context on exit."""
+    global running_server, socket_image, socket_joint, context
+    running_server = False
+    try:
+        socket_image.close()
+        socket_joint.close()
+        context.term()
+        print("[dora_zeromq] ZeroMQ sockets closed")
+    except Exception as e:
+        print(f"[dora_zeromq] Error closing ZeroMQ: {e}")
+
+
+def signal_handler(signum, frame):
+    """Handle SIGINT/SIGTERM to ensure cleanup."""
+    print(f"[dora_zeromq] Received signal {signum}, cleaning up...")
+    cleanup_zmq()
+    exit(0)
 
 
 # IPC Address
@@ -49,7 +71,7 @@ def recv_server():
                     output_queue.put(("action_joint", array))
                     
         except zmq.Again:
-            print(f"Dora ZeroMQ Received Timeout")
+            # Timeout is normal during polling, no need to log
             time.sleep(0.01)
             continue
             
@@ -60,6 +82,11 @@ def recv_server():
 
 
 if __name__ == "__main__":
+    # Register cleanup handlers
+    atexit.register(cleanup_zmq)
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
     node = Node()
 
     server_thread = threading.Thread(target=recv_server)

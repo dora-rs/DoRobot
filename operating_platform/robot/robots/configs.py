@@ -495,6 +495,18 @@ class SO101RobotConfig(ManipulatorRobotConfig):
                     "joint_gripper": [6, "sts3215"],
                 },
             ),
+            # "second": FeetechMotorsBusConfig(
+            #     port="/dev/ttyACM2",
+            #     motors={
+            #         # name: (index, model)
+            #         "joint_shoulder_pan": [1, "sts3215"],
+            #         "joint_shoulder_lift": [2, "sts3215"],
+            #         "joint_elbow_flex": [3, "sts3215"],
+            #         "joint_wrist_flex": [4, "sts3215"],
+            #         "joint_wrist_roll": [5, "sts3215"],
+            #         "joint_gripper": [6, "sts3215"],
+            #     },
+            # ),
         }
     )
 
@@ -512,6 +524,18 @@ class SO101RobotConfig(ManipulatorRobotConfig):
                     "joint_gripper": [6, "sts3215"],
                 },
             ),
+            # "second": FeetechMotorsBusConfig(
+            #     port="/dev/ttyACM3",
+            #     motors={
+            #         # name: (index, model)
+            #         "joint_shoulder_pan": [1, "sts3215"],
+            #         "joint_shoulder_lift": [2, "sts3215"],
+            #         "joint_elbow_flex": [3, "sts3215"],
+            #         "joint_wrist_flex": [4, "sts3215"],
+            #         "joint_wrist_roll": [5, "sts3215"],
+            #         "joint_gripper": [6, "sts3215"],
+            #     },
+            # ),
         }
     )
 
@@ -524,11 +548,17 @@ class SO101RobotConfig(ManipulatorRobotConfig):
                 height=480,
             ),
             "image_wrist": OpenCVCameraConfig(
-                camera_index=2,
+                camera_index=1,
                 fps=30,
                 width=640,
                 height=480,
             ),
+            # "image_wrist2": OpenCVCameraConfig(
+            #     camera_index=4,
+            #     fps=30,
+            #     width=640,
+            #     height=480,
+            # ),
         }
     )
 
@@ -540,3 +570,7 @@ class SO101RobotConfig(ManipulatorRobotConfig):
             # "audio_left": 4,
         }
     )
+
+
+
+

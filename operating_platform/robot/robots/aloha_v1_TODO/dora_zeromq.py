@@ -60,7 +60,7 @@ def recv_server():
                     output_queue.put(("action_gripper_left", array))
                     
         except zmq.Again:
-            print(f"Dora ZeroMQ Received Timeout")
+            # Timeout is normal during polling, no need to log
             time.sleep(0.01)
             continue
             
