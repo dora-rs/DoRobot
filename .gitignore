@@ -211,3 +211,6 @@ docker/*.tar*
 
 .vscode
 outputs/
+
+# Text files (notes, drafts)
+*.txt
