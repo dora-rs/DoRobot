@@ -175,11 +175,13 @@ def _build_ffmpeg_cmd(
     fps: int,
     vcodec: str,
     pix_fmt: str = "yuv420p",
-    g: int | None = 1,
-    crf: int | None = 10,
+    g: int | None = None,
+    crf: int | None = None,
     fast_decode: int = 0,
     log_level: Optional[str] = "error",
     overwrite: bool = False,
+    # libx264 specific parameters
+    preset: str = "ultrafast",
     # Ascend encoder specific parameters
     device_id: int = 0,
     channel_id: int = 0,
@@ -187,6 +189,8 @@ def _build_ffmpeg_cmd(
     rc_mode: int = 0,
     max_bit_rate: int = 10000,
     movement_scene: int = 0,
+    # Progress output
+    show_progress: bool = False,
 ) -> list[str]:
     """Build ffmpeg command for video encoding."""
     ffmpeg_args = OrderedDict(
@@ -210,8 +214,21 @@ def _build_ffmpeg_cmd(
         ffmpeg_args["-frame_rate"] = str(fps)
         if g is not None:
             ffmpeg_args["-gop"] = str(g)
+    elif vcodec == "libx264":
+        # libx264 specific parameters for fast encoding
+        ffmpeg_args["-preset"] = preset
+        if g is not None:
+            ffmpeg_args["-g"] = str(g)
+        else:
+            ffmpeg_args["-g"] = str(fps * 2)  # Default: keyframe every 2 seconds
+        if crf is not None:
+            ffmpeg_args["-crf"] = str(crf)
+        else:
+            ffmpeg_args["-crf"] = "23"  # Default CRF for libx264 (good quality/size balance)
+        if fast_decode:
+            ffmpeg_args["-tune"] = "fastdecode"
     else:
-        # Software encoder parameters
+        # Other software encoders (libopenh264, etc.)
         if g is not None:
             ffmpeg_args["-g"] = str(g)
         if crf is not None:
@@ -221,10 +238,19 @@ def _build_ffmpeg_cmd(
             value = f"fast-decode={fast_decode}" if vcodec == "libsvtav1" else "fastdecode"
             ffmpeg_args[key] = value
 
-    if log_level is not None:
+    if log_level is not None and not show_progress:
         ffmpeg_args["-loglevel"] = str(log_level)
+    elif show_progress:
+        # Show progress info
+        ffmpeg_args["-loglevel"] = "info"
+        ffmpeg_args["-stats"] = ""
 
-    ffmpeg_args_list = [item for pair in ffmpeg_args.items() for item in pair]
+    ffmpeg_args_list = []
+    for key, value in ffmpeg_args.items():
+        ffmpeg_args_list.append(key)
+        if value:  # Skip empty values (like -stats which has no value)
+            ffmpeg_args_list.append(value)
+
     if overwrite:
         ffmpeg_args_list.append("-y")
 
@@ -235,10 +261,10 @@ def encode_video_frames(
     imgs_dir: Path | str,
     video_path: Path | str,
     fps: int,
-    vcodec: Literal["h264_ascend","libopenh264", "libx264"] = "h264_ascend",
+    vcodec: Literal["h264_ascend", "libopenh264", "libx264"] = "h264_ascend",
     pix_fmt: str = "yuv420p",
-    g: int | None = 1,
-    crf: int | None = 10,
+    g: int | None = None,
+    crf: int | None = None,
     fast_decode: int = 0,
     log_level: Optional[str] = "error",
     overwrite: bool = False,
@@ -255,6 +281,11 @@ def encode_video_frames(
 
     When h264_ascend (NPU) encoder fails (e.g., channel exhaustion),
     automatically falls back to libx264 software encoder.
+
+    libx264 fallback uses:
+    - preset=ultrafast for fast encoding on CPU
+    - crf=23 for good quality/size balance
+    - g=fps*2 for keyframe every 2 seconds
 
     More info on ffmpeg arguments tuning on `benchmark/video/README.md`
     """
@@ -323,32 +354,40 @@ def encode_video_frames(
         )
 
         if is_npu_channel_error and "libx264" in available_encoders:
-            # Fallback to libx264 software encoder
+            # Fallback to libx264 software encoder with progress output
             logging.warning(
                 f"[VideoEncoder] NPU encoder failed for {video_path.name}, "
-                f"falling back to libx264 software encoder"
+                f"falling back to libx264 (CPU) encoder..."
             )
 
-            # Build fallback command with libx264
+            # Count frames for progress estimation
+            frame_count = len(list(imgs_dir.glob("frame_*.png")))
+            logging.info(f"[VideoEncoder] Encoding {frame_count} frames with libx264 (preset=ultrafast)...")
+
+            # Build fallback command with libx264 - use ultrafast preset and show progress
             fallback_cmd = _build_ffmpeg_cmd(
                 imgs_dir=imgs_dir,
                 video_path=video_path,
                 fps=fps,
                 vcodec="libx264",
                 pix_fmt=pix_fmt,
-                g=g,
-                crf=crf if crf is not None else 23,  # Default CRF for libx264
+                g=None,  # Let _build_ffmpeg_cmd use default (fps*2)
+                crf=None,  # Let _build_ffmpeg_cmd use default (23)
                 fast_decode=fast_decode,
-                log_level=log_level,
-                overwrite=overwrite,
+                log_level=None,
+                overwrite=True,  # Overwrite any partial file from failed NPU attempt
+                preset="ultrafast",  # Fast CPU encoding
+                show_progress=True,  # Show ffmpeg progress
             )
 
+            logging.info(f"[VideoEncoder] Running: {' '.join(fallback_cmd)}")
+
             try:
-                subprocess.run(fallback_cmd, check=True, stdin=subprocess.DEVNULL,
-                              capture_output=True, text=True)
+                # Run with progress visible (stderr not captured)
+                subprocess.run(fallback_cmd, check=True, stdin=subprocess.DEVNULL)
                 logging.info(f"[VideoEncoder] Fallback encoding successful: {video_path.name}")
             except subprocess.CalledProcessError as fallback_error:
-                logging.error(f"[VideoEncoder] Fallback also failed: {fallback_error.stderr}")
+                logging.error(f"[VideoEncoder] Fallback encoding failed with return code: {fallback_error.returncode}")
                 raise
         else:
             # Re-raise if not NPU error or no fallback available
