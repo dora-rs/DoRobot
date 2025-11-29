@@ -1,5 +1,5 @@
 [project]
-name = "DoRobot-Preview"
+name = "DoRobot"
 version = "0.1.0"
 description = "Robotics operating platform for robot control, data collection, and policy training"
 readme = "README.md"

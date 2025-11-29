@@ -1,4 +1,4 @@
-# DoRobot-Test
+# DoRobot
 
 > Dora LeRobot Version - A robotics operating platform for robot control, data collection, and policy training.
 
@@ -7,8 +7,8 @@
 ### Get the Project
 
 ```bash
-git clone https://github.com/ustbxcj/DoRobotTest.git
-cd DoRobotTest
+git clone https://github.com/dora-rs/DoRobot.git
+cd DoRobot
 ```
 
 ### Automated Environment Setup (Recommended)
@@ -275,7 +275,7 @@ python operating_platform/core/inference.py \
 ## Project Structure
 
 ```
-DoRobotTest/
+DoRobot/
 ├── operating_platform/
 │   ├── core/           # Main pipelines (record, train, inference)
 │   ├── robot/          # Robot hardware abstraction
