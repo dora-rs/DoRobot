@@ -923,7 +923,7 @@ class DoRobotDataset(torch.utils.data.Dataset):
 
         self.episode_buffer["size"] += 1
 
-    def save_episode(self, episode_data: dict | None = None) -> int:
+    def save_episode(self, episode_data: dict | None = None, skip_encoding: bool = False) -> int:
         """
         This will save to disk the current episode in self.episode_buffer.
 
@@ -931,6 +931,9 @@ class DoRobotDataset(torch.utils.data.Dataset):
             episode_data (dict | None, optional): Dict containing the episode data to save. If None, this will
                 save the current episode in self.episode_buffer, which is filled with 'add_frame'. Defaults to
                 None.
+            skip_encoding (bool, optional): If True, skip video encoding and keep raw PNG images.
+                This is used for cloud offload mode where encoding is done on the cloud server.
+                Defaults to False.
         """
         import copy
 
@@ -984,10 +987,12 @@ class DoRobotDataset(torch.utils.data.Dataset):
         self._save_episode_table(episode_buffer, episode_index)
         ep_stats = compute_episode_stats(episode_buffer, self.features)
 
-        if len(self.meta.video_keys) > 0:
+        if len(self.meta.video_keys) > 0 and not skip_encoding:
             video_paths = self.encode_episode_videos(episode_index)
             for key in self.meta.video_keys:
                 episode_buffer[key] = video_paths[key]
+        elif skip_encoding and len(self.meta.video_keys) > 0:
+            logging.info(f"[Dataset] Skipping video encoding for episode {episode_index} (cloud offload mode)")
 
         # `meta.save_episode` be executed after encoding the videos
         self.meta.save_episode(episode_index, episode_length, episode_tasks, ep_stats)
@@ -1010,7 +1015,8 @@ class DoRobotDataset(torch.utils.data.Dataset):
         if not episode_parquet.exists():
             raise RuntimeError(f"Failed to create parquet file for episode {episode_index}: {episode_parquet}")
 
-        if len(self.meta.video_keys) > 0:
+        # Only check for video files if we did the encoding
+        if len(self.meta.video_keys) > 0 and not skip_encoding:
             for key in self.meta.video_keys:
                 episode_video = self.root / self.meta.get_video_file_path(episode_index, key)
                 if not episode_video.exists():
@@ -1019,7 +1025,8 @@ class DoRobotDataset(torch.utils.data.Dataset):
         # delete images for THIS episode only (not the entire images/ folder!)
         # Image path format: images/{image_key}/episode_{episode_index:06d}/frame_{frame_index:06d}.png
         # We want to delete episode_XXXXXX/ directory, which is .parent of the frame file
-        if len(self.meta.video_keys) > 0:
+        # NOTE: In cloud offload mode (skip_encoding=True), we keep the images for cloud-side encoding
+        if len(self.meta.video_keys) > 0 and not skip_encoding:
             for key in self.meta.video_keys:
                 img_dir = self._get_image_file_path(
                     episode_index=episode_index, image_key=key, frame_index=0
