@@ -576,12 +576,23 @@ class DoRobotDataset(torch.utils.data.Dataset):
         try:
             if force_cache_sync:
                 raise FileNotFoundError
-            assert all((self.root / fpath).is_file() for fpath in self.get_episodes_file_paths())
+            # Only check parquet files exist (not videos) for local resume
+            # Videos may not exist in cloud offload mode
+            parquet_files = self.get_parquet_file_paths()
+            assert all((self.root / fpath).is_file() for fpath in parquet_files)
             self.hf_dataset = self.load_hf_dataset()
         except (AssertionError, FileNotFoundError, NotADirectoryError):
-            self.revision = get_safe_version(self.repo_id, self.revision)
-            self.download_episodes(download_videos)
-            self.hf_dataset = self.load_hf_dataset()
+            # Only try to download from Hub if parquet files don't exist locally
+            # This prevents hanging when resuming cloud offload datasets (no Hub repo)
+            parquet_files = self.get_parquet_file_paths()
+            if parquet_files and all((self.root / fpath).is_file() for fpath in parquet_files):
+                # Parquet files exist locally, just load them (skip video check)
+                self.hf_dataset = self.load_hf_dataset()
+            else:
+                # Try to download from Hub
+                self.revision = get_safe_version(self.repo_id, self.revision)
+                self.download_episodes(download_videos)
+                self.hf_dataset = self.load_hf_dataset()
 
         self.episode_data_index = get_episode_data_index(self.meta.episodes, self.episodes)
 
@@ -693,6 +704,14 @@ class DoRobotDataset(torch.utils.data.Dataset):
             fpaths += video_files
 
         return fpaths
+
+    def get_parquet_file_paths(self) -> list[str]:
+        """Get only parquet file paths (not videos).
+
+        Used for local resume check - videos may not exist in cloud offload mode.
+        """
+        episodes = self.episodes if self.episodes is not None else list(range(self.meta.total_episodes))
+        return [str(self.meta.get_data_file_path(ep_idx)) for ep_idx in episodes]
 
     def load_hf_dataset(self) -> datasets.Dataset:
         """hf_dataset contains all the observations, states, actions, rewards, etc."""
