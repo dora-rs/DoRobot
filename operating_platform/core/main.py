@@ -40,6 +40,7 @@ from operating_platform.core.daemon import Daemon
 from operating_platform.core.record import Record, RecordConfig
 from operating_platform.core.replay import DatasetReplayConfig, ReplayConfig, replay
 from operating_platform.utils.camera_display import CameraDisplay
+from operating_platform.core.cloud_train import CloudTrainer, run_cloud_training
 
 DEFAULT_FPS = 30
 
@@ -194,11 +195,24 @@ def record_loop(cfg: ControlPipelineConfig, daemon: Daemon):
     target_dir.mkdir(parents=True, exist_ok=True)
     logging.info(f"Target directory: {target_dir}")
 
+    # Check if cloud_offload mode is enabled
+    cloud_offload = getattr(cfg.record, 'cloud_offload', False)
+
     # 检查恢复模式（更健壮的路径检查）
     resume = False
     if any(target_dir.iterdir()):  # 检查目录是否非空
-        resume = True
-        logging.info(f"Resuming recording in existing directory: {target_dir}")
+        if cloud_offload:
+            # In cloud offload mode, clear existing data to start fresh
+            # This prevents issues with incomplete/corrupted data from previous runs
+            import shutil
+            logging.warning(f"Cloud offload mode: Clearing existing data in {target_dir}")
+            shutil.rmtree(target_dir)
+            target_dir.mkdir(parents=True, exist_ok=True)
+            logging.info(f"Starting fresh recording session in: {target_dir}")
+            resume = False
+        else:
+            resume = True
+            logging.info(f"Resuming recording in existing directory: {target_dir}")
     else:
         logging.info(f"Starting new recording session in: {target_dir}")
 
@@ -241,7 +255,15 @@ def record_loop(cfg: ControlPipelineConfig, daemon: Daemon):
         async_save_queue_size=cfg.record.async_save_queue_size,
         async_save_timeout_s=cfg.record.async_save_timeout_s,
         async_save_max_retries=cfg.record.async_save_max_retries,
+        cloud_offload=getattr(cfg.record, 'cloud_offload', False),
     )
+
+    # Log cloud offload mode status
+    if record_cfg.cloud_offload:
+        logging.info("=" * 50)
+        logging.info("CLOUD OFFLOAD MODE ENABLED")
+        logging.info("Video encoding will be skipped - raw images uploaded to cloud")
+        logging.info("=" * 50)
     record = Record(
         fps=cfg.record.fps,
         robot=daemon.robot,
@@ -276,7 +298,10 @@ def record_loop(cfg: ControlPipelineConfig, daemon: Daemon):
     while True:
         logging.info("Recording active. Press:")
         logging.info("- 'n' to save current episode and start new one")
-        logging.info("- 'e' to stop recording and exit")
+        if record.cloud_offload:
+            logging.info("- 'e' to stop recording and upload to cloud for training (cloud_offload=True)")
+        else:
+            logging.info("- 'e' to stop recording, encode locally, and exit")
 
         # Episode录制循环
         while True:
@@ -320,8 +345,11 @@ def record_loop(cfg: ControlPipelineConfig, daemon: Daemon):
             elif key in [ord('e'), ord('E')]:
                 logging.info("Stopping recording and exiting...")
 
-                # Voice prompt: end collection
-                log_say("End collection. Please wait for video encoding.", play_sounds=True)
+                # Voice prompt: different message based on cloud_offload mode
+                if record.cloud_offload:
+                    log_say("End collection. Uploading to cloud for training.", play_sounds=True)
+                else:
+                    log_say("End collection. Please wait for video encoding.", play_sounds=True)
 
                 # Close camera display window FIRST to release video resources
                 logging.info("Closing camera display...")
@@ -337,9 +365,13 @@ def record_loop(cfg: ControlPipelineConfig, daemon: Daemon):
                 logging.info("DORA daemon stopped")
 
                 # Save the current episode (async save queues it)
+                # Note: record.save() now uses cloud_offload setting automatically
                 metadata = record.save()
                 if hasattr(metadata, 'episode_index'):
-                    logging.info(f"Episode {metadata.episode_index} queued for saving")
+                    if record.cloud_offload:
+                        logging.info(f"Episode {metadata.episode_index} saved (raw images, no encoding)")
+                    else:
+                        logging.info(f"Episode {metadata.episode_index} queued for saving")
 
                 # Now stop recording thread and wait for image writer to complete
                 # Hardware is already disconnected, so no risk of arm errors
@@ -360,6 +392,45 @@ def record_loop(cfg: ControlPipelineConfig, daemon: Daemon):
                     logging.info(f"Save stats: queued={final_status['stats']['total_queued']} "
                                f"completed={final_status['stats']['total_completed']} "
                                f"failed={final_status['stats']['total_failed']}")
+
+                # If cloud_offload mode, run cloud training
+                if record.cloud_offload:
+                    # Get dataset path for upload
+                    upload_dataset_path = str(target_dir)
+                    logging.info(f"Dataset path: {upload_dataset_path}")
+
+                    # Model output path: sibling folder ~/DoRobot/model
+                    dorobot_home = Path.home() / "DoRobot"
+                    model_output_path = dorobot_home / "model"
+                    model_output_path.mkdir(parents=True, exist_ok=True)
+                    logging.info(f"Model output path: {model_output_path}")
+
+                    # Run cloud training
+                    logging.info("="*50)
+                    logging.info("Starting cloud training workflow...")
+                    logging.info("="*50)
+
+                    try:
+                        success = run_cloud_training(
+                            dataset_path=upload_dataset_path,
+                            model_output_path=str(model_output_path),
+                            timeout_minutes=120  # 2 hours timeout
+                        )
+
+                        if success:
+                            logging.info("="*50)
+                            logging.info("CLOUD TRAINING COMPLETED SUCCESSFULLY!")
+                            logging.info(f"Model downloaded to: {model_output_path}")
+                            logging.info("="*50)
+                            log_say("Training complete. Model downloaded.", play_sounds=True)
+                        else:
+                            logging.error("Cloud training failed!")
+                            log_say("Training failed.", play_sounds=True)
+
+                    except Exception as e:
+                        logging.error(f"Cloud training error: {e}")
+                        traceback.print_exc()
+                        log_say("Training error.", play_sounds=True)
 
                 return
 

@@ -41,6 +41,7 @@ class EpisodeSaveTask:
         timestamp: When this task was created
         retry_count: Number of retry attempts made
         max_retries: Maximum retry attempts before failure
+        skip_encoding: If True, skip video encoding (cloud offload mode)
     """
     episode_index: int
     episode_buffer: dict
@@ -50,6 +51,7 @@ class EpisodeSaveTask:
     timestamp: float
     retry_count: int = 0
     max_retries: int = 3
+    skip_encoding: bool = False
 
 
 @dataclass
@@ -172,6 +174,7 @@ class AsyncEpisodeSaver:
         dataset: 'DoRobotDataset',
         record_cfg: 'RecordConfig',
         record_cmd: dict,
+        skip_encoding: bool = False,
     ) -> EpisodeMetadata:
         """
         Queue an episode for asynchronous saving and return metadata immediately.
@@ -191,6 +194,7 @@ class AsyncEpisodeSaver:
             dataset: DoRobotDataset instance
             record_cfg: Recording configuration
             record_cmd: Recording command metadata
+            skip_encoding: If True, skip video encoding (cloud offload mode)
 
         Returns:
             EpisodeMetadata with episode_index and queue position
@@ -223,6 +227,7 @@ class AsyncEpisodeSaver:
             record_cfg=record_cfg,
             record_cmd=record_cmd,
             timestamp=time.time(),
+            skip_encoding=skip_encoding,
         )
 
         # 5. Add to pending tracker
@@ -311,7 +316,7 @@ class AsyncEpisodeSaver:
         # This uses the EXISTING save_episode() method to ensure format compatibility
         logging.debug("[AsyncEpisodeSaver] Calling dataset.save_episode (ep %d)", ep_idx)
         save_start = time.time()
-        actual_ep_idx = task.dataset.save_episode(episode_data=task.episode_buffer)
+        actual_ep_idx = task.dataset.save_episode(episode_data=task.episode_buffer, skip_encoding=task.skip_encoding)
         save_time = time.time() - save_start
         logging.debug("[AsyncEpisodeSaver] save_episode done (ep %d, %.2fs)",
                      ep_idx, save_time)

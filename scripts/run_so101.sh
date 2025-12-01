@@ -23,6 +23,10 @@ CONDA_ENV="${CONDA_ENV:-dorobot}"
 USE_NPU="${USE_NPU:-0}"
 ASCEND_TOOLKIT_PATH="${ASCEND_TOOLKIT_PATH:-/usr/local/Ascend/ascend-toolkit}"
 
+# Cloud Offload Configuration - set CLOUD_OFFLOAD=1 to skip local video encoding
+# When enabled, raw images are kept and uploaded to cloud for encoding/training
+CLOUD_OFFLOAD="${CLOUD_OFFLOAD:-0}"
+
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -240,12 +244,25 @@ start_cli() {
     log_info "Running main.py with parameters:"
     log_info "  repo_id: $repo_id"
     log_info "  single_task: $single_task"
+    if [ "$CLOUD_OFFLOAD" == "1" ]; then
+        log_info "  cloud_offload: enabled (skip local video encoding)"
+    fi
+
+    # Build command arguments
+    local cmd_args=(
+        --robot.type=so101
+        --record.repo_id="$repo_id"
+        --record.single_task="$single_task"
+    )
+
+    # Add cloud_offload if enabled
+    if [ "$CLOUD_OFFLOAD" == "1" ]; then
+        cmd_args+=(--record.cloud_offload=true)
+    fi
 
     # Start CLI in foreground (blocks until exit)
     python "$PROJECT_ROOT/operating_platform/core/main.py" \
-        --robot.type=so101 \
-        --record.repo_id="$repo_id" \
-        --record.single_task="$single_task" \
+        "${cmd_args[@]}" \
         "$@"
 }
 
@@ -260,6 +277,8 @@ print_usage() {
     echo "  REPO_ID             Dataset repository ID (default: so101-test)"
     echo "  SINGLE_TASK         Task description (default: 'start and test so101 arm.')"
     echo "  USE_NPU             Set to 1 to enable Ascend NPU support (default: 0)"
+    echo "  CLOUD_OFFLOAD       Set to 1 to skip local video encoding (default: 0)"
+    echo "                      When enabled, raw images are kept for cloud upload/training"
     echo "  ASCEND_TOOLKIT_PATH Path to CANN toolkit (default: /usr/local/Ascend/ascend-toolkit)"
     echo "  DORA_INIT_DELAY     Seconds to wait for DORA to initialize (default: 5)"
     echo "  SOCKET_TIMEOUT      Seconds to wait for ZeroMQ sockets (default: 30)"
@@ -272,11 +291,18 @@ print_usage() {
     echo "  # With Ascend NPU support:"
     echo "  USE_NPU=1 $0"
     echo ""
+    echo "  # With cloud offload (skip local encoding, upload to cloud):"
+    echo "  CLOUD_OFFLOAD=1 $0"
+    echo ""
+    echo "  # NPU + cloud offload (recommended for Orange Pi):"
+    echo "  USE_NPU=1 CLOUD_OFFLOAD=1 $0"
+    echo ""
     echo "  # With longer init delay (if timeout issues):"
     echo "  DORA_INIT_DELAY=10 $0"
     echo ""
     echo "Note: This script starts both DORA dataflow and CLI automatically."
-    echo "      Press 'e' to exit, 'n' to save and start new episode."
+    echo "      Press 'n' to save episode and start new one."
+    echo "      Press 'e' to stop recording and exit (with cloud training if CLOUD_OFFLOAD=1)."
 }
 
 # Main entry point
@@ -327,7 +353,13 @@ main() {
     echo "=========================================="
     echo "  Controls:"
     echo "    'n' - Save episode and start new one"
-    echo "    'e' - Stop recording and exit"
+    if [ "$CLOUD_OFFLOAD" == "1" ]; then
+        echo "    'e' - Stop, upload to cloud, and train"
+        echo ""
+        echo "  Mode: Cloud Offload (skip local encoding)"
+    else
+        echo "    'e' - Stop recording and exit"
+    fi
     echo "=========================================="
     echo ""
 

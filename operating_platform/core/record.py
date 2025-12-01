@@ -113,6 +113,11 @@ class RecordConfig():
     # Maximum retry attempts for failed saves
     async_save_max_retries: int = 3
 
+    # Cloud offload mode: skip local video encoding, upload raw images to cloud for encoding/training
+    # When True, all saves will skip video encoding (for edge devices like Orange Pi with slow encoding)
+    # When False, normal local video encoding is performed
+    cloud_offload: bool = False
+
     record_cmd = None
 
 
@@ -137,6 +142,9 @@ class Record:
         # Async save support
         self.use_async_save = getattr(record_cfg, 'use_async_save', True)  # Default to True
         self.async_saver = None
+
+        # Cloud offload mode: skip video encoding for all saves
+        self.cloud_offload = getattr(record_cfg, 'cloud_offload', False)
         if self.use_async_save:
             max_queue_size = getattr(record_cfg, 'async_save_queue_size', 10)
             self.async_saver = AsyncEpisodeSaver(max_queue_size=max_queue_size)
@@ -255,7 +263,7 @@ class Record:
         # stop_recording(robot, listener, record_cfg.display_cameras)
         # log_say("Stop recording", record_cfg.play_sounds, blocking=True)
 
-    def save_async(self) -> EpisodeMetadata:
+    def save_async(self, skip_encoding: bool = False) -> EpisodeMetadata:
         """
         Queue episode for asynchronous saving.
         Returns metadata immediately without blocking.
@@ -263,6 +271,9 @@ class Record:
         The episode buffer already has a pre-allocated episode_index
         (assigned when the buffer was created via _create_new_episode_buffer).
         This ensures images were saved to the correct directory during recording.
+
+        Args:
+            skip_encoding: If True, skip video encoding (cloud offload mode).
         """
         import copy
 
@@ -270,7 +281,7 @@ class Record:
         # This prevents the recording thread from adding frames during the swap
         with self._buffer_lock:
             current_ep_idx = self.dataset.episode_buffer.get("episode_index", "?")
-            logging.info(f"[Record] Queueing episode {current_ep_idx} for async save...")
+            logging.info(f"[Record] Queueing episode {current_ep_idx} for async save (skip_encoding={skip_encoding})...")
 
             # Deep copy the buffer INSIDE the lock (before recording thread can add more frames)
             buffer_copy = copy.deepcopy(self.dataset.episode_buffer)
@@ -284,6 +295,7 @@ class Record:
             dataset=self.dataset,
             record_cfg=self.record_cfg,
             record_cmd=self.record_cmd,
+            skip_encoding=skip_encoding,
         )
 
         # Update local state immediately
@@ -293,11 +305,15 @@ class Record:
         logging.info(f"[Record] Episode {metadata.episode_index} queued (pos={metadata.queue_position})")
         return metadata
 
-    def save_sync(self) -> dict:
-        """Original synchronous save method."""
-        print("will save_episode")
+    def save_sync(self, skip_encoding: bool = False) -> dict:
+        """Original synchronous save method.
 
-        episode_index = self.dataset.save_episode()
+        Args:
+            skip_encoding: If True, skip video encoding (cloud offload mode).
+        """
+        print(f"will save_episode (skip_encoding={skip_encoding})")
+
+        episode_index = self.dataset.save_episode(skip_encoding=skip_encoding)
 
         print("save_episode succcess, episode_index:", episode_index)
 
@@ -334,14 +350,23 @@ class Record:
         self.save_data = data
         return data
 
-    def save(self) -> EpisodeMetadata | dict:
+    def save(self, skip_encoding: bool | None = None) -> EpisodeMetadata | dict:
         """
         Save episode - async by default, fallback to sync if needed.
+
+        Args:
+            skip_encoding: If True, skip video encoding and keep raw PNG images.
+                          If None (default), uses self.cloud_offload setting.
+                          Used for cloud offload mode where encoding is done on server.
         """
+        # Use cloud_offload setting if skip_encoding not explicitly specified
+        if skip_encoding is None:
+            skip_encoding = self.cloud_offload
+
         if self.use_async_save:
-            return self.save_async()
+            return self.save_async(skip_encoding=skip_encoding)
         else:
-            return self.save_sync()
+            return self.save_sync(skip_encoding=skip_encoding)
 
     def discard(self):
         if self.record_complete == True:

@@ -224,6 +224,15 @@ main() {
         exit 1
     fi
 
+    # Auto-accept conda Terms of Service (required for non-interactive installs)
+    log_step "Accepting conda Terms of Service..."
+    conda config --set auto_activate_base false 2>/dev/null || true
+    # Accept TOS for default channels
+    yes | conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main 2>/dev/null || true
+    yes | conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r 2>/dev/null || true
+    # Alternative method if the above fails
+    conda config --set notify_outdated_conda false 2>/dev/null || true
+
     # Check if environment already exists
     if conda env list | grep -q "^${ENV_NAME} "; then
         log_warn "Environment '$ENV_NAME' already exists."
@@ -309,6 +318,11 @@ main() {
         sudo apt install -y speech-dispatcher || {
             log_warn "Could not install speech-dispatcher automatically."
             log_warn "Please run: sudo apt install speech-dispatcher"
+        }
+        log_info "Installing portaudio for audio recording..."
+        sudo apt install -y portaudio19-dev || {
+            log_warn "Could not install portaudio19-dev automatically."
+            log_warn "Please run: sudo apt install portaudio19-dev"
         }
     fi
 

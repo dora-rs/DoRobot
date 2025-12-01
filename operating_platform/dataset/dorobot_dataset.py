@@ -280,10 +280,18 @@ class DoRobotDatasetMetadata:
         episode_length: int,
         episode_tasks: list[str],
         episode_stats: dict[str, dict],
+        skip_encoding: bool = False,
     ) -> None:
         """
         Save episode metadata to disk.
         Thread-safe via _meta_lock for async save compatibility.
+
+        Args:
+            episode_index: The episode index
+            episode_length: Number of frames in this episode
+            episode_tasks: List of task descriptions for this episode
+            episode_stats: Statistics for this episode
+            skip_encoding: If True, skip video info update (cloud offload mode)
         """
         with self._meta_lock:
             self.info["total_episodes"] += 1
@@ -294,9 +302,11 @@ class DoRobotDatasetMetadata:
                 self.info["total_chunks"] += 1
 
             self.info["splits"] = {"train": f"0:{self.info['total_episodes']}"}
-            self.info["total_videos"] += len(self.video_keys)
-            if len(self.video_keys) > 0:
-                self.update_video_info()
+            # Only count videos and update video info if encoding was done
+            if not skip_encoding:
+                self.info["total_videos"] += len(self.video_keys)
+                if len(self.video_keys) > 0:
+                    self.update_video_info()
 
             write_info(self.info, self.root)
 
@@ -566,12 +576,23 @@ class DoRobotDataset(torch.utils.data.Dataset):
         try:
             if force_cache_sync:
                 raise FileNotFoundError
-            assert all((self.root / fpath).is_file() for fpath in self.get_episodes_file_paths())
+            # Only check parquet files exist (not videos) for local resume
+            # Videos may not exist in cloud offload mode
+            parquet_files = self.get_parquet_file_paths()
+            assert all((self.root / fpath).is_file() for fpath in parquet_files)
             self.hf_dataset = self.load_hf_dataset()
         except (AssertionError, FileNotFoundError, NotADirectoryError):
-            self.revision = get_safe_version(self.repo_id, self.revision)
-            self.download_episodes(download_videos)
-            self.hf_dataset = self.load_hf_dataset()
+            # Only try to download from Hub if parquet files don't exist locally
+            # This prevents hanging when resuming cloud offload datasets (no Hub repo)
+            parquet_files = self.get_parquet_file_paths()
+            if parquet_files and all((self.root / fpath).is_file() for fpath in parquet_files):
+                # Parquet files exist locally, just load them (skip video check)
+                self.hf_dataset = self.load_hf_dataset()
+            else:
+                # Try to download from Hub
+                self.revision = get_safe_version(self.repo_id, self.revision)
+                self.download_episodes(download_videos)
+                self.hf_dataset = self.load_hf_dataset()
 
         self.episode_data_index = get_episode_data_index(self.meta.episodes, self.episodes)
 
@@ -683,6 +704,14 @@ class DoRobotDataset(torch.utils.data.Dataset):
             fpaths += video_files
 
         return fpaths
+
+    def get_parquet_file_paths(self) -> list[str]:
+        """Get only parquet file paths (not videos).
+
+        Used for local resume check - videos may not exist in cloud offload mode.
+        """
+        episodes = self.episodes if self.episodes is not None else list(range(self.meta.total_episodes))
+        return [str(self.meta.get_data_file_path(ep_idx)) for ep_idx in episodes]
 
     def load_hf_dataset(self) -> datasets.Dataset:
         """hf_dataset contains all the observations, states, actions, rewards, etc."""
@@ -995,7 +1024,8 @@ class DoRobotDataset(torch.utils.data.Dataset):
             logging.info(f"[Dataset] Skipping video encoding for episode {episode_index} (cloud offload mode)")
 
         # `meta.save_episode` be executed after encoding the videos
-        self.meta.save_episode(episode_index, episode_length, episode_tasks, ep_stats)
+        # Pass skip_encoding to avoid calling update_video_info() when videos weren't created
+        self.meta.save_episode(episode_index, episode_length, episode_tasks, ep_stats, skip_encoding=skip_encoding)
 
         ep_data_index = get_episode_data_index(self.meta.episodes, [episode_index])
         ep_data_index_np = {k: t.numpy() for k, t in ep_data_index.items()}

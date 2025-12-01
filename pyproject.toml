@@ -45,6 +45,9 @@ dependencies = [
 
     # Math/array operations (lightweight)
     "einops>=0.8.1,<0.9.0",
+
+    # SSH/SFTP for cloud training
+    "paramiko>=3.4.0,<4.0.0",
 ]
 
 [project.optional-dependencies]
