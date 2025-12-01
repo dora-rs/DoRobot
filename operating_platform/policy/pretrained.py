@@ -125,7 +125,6 @@ class PreTrainedPolicy(nn.Module, HubMixin, abc.ABC):
 
         policy.to(config.device)
         policy.eval()
-        policy = policy.half()
         return policy
 
     @classmethod
