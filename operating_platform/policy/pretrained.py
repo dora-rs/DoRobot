@@ -125,6 +125,9 @@ class PreTrainedPolicy(nn.Module, HubMixin, abc.ABC):
 
         policy.to(config.device)
         policy.eval()
+        # Convert to FP32 to ensure compatibility with FP32 inputs
+        # This handles models that were saved in FP16 format
+        policy = policy.float()
         return policy
 
     @classmethod
