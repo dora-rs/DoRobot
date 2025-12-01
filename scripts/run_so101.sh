@@ -19,13 +19,15 @@ set -e
 # Configuration - Single unified environment
 CONDA_ENV="${CONDA_ENV:-dorobot}"
 
-# NPU Configuration - set USE_NPU=1 to enable Ascend NPU support
-USE_NPU="${USE_NPU:-0}"
+# NPU Configuration - enabled by default for Orange Pi/Ascend hardware
+# Set USE_NPU=0 to disable if not on NPU hardware
+USE_NPU="${USE_NPU:-1}"
 ASCEND_TOOLKIT_PATH="${ASCEND_TOOLKIT_PATH:-/usr/local/Ascend/ascend-toolkit}"
 
-# Cloud Offload Configuration - set CLOUD_OFFLOAD=1 to skip local video encoding
+# Cloud Offload Configuration - enabled by default (recommended workflow)
 # When enabled, raw images are kept and uploaded to cloud for encoding/training
-CLOUD_OFFLOAD="${CLOUD_OFFLOAD:-0}"
+# Set CLOUD_OFFLOAD=0 to use local video encoding instead
+CLOUD_OFFLOAD="${CLOUD_OFFLOAD:-1}"
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -276,33 +278,32 @@ print_usage() {
     echo "  CONDA_ENV           Conda environment name (default: dorobot)"
     echo "  REPO_ID             Dataset repository ID (default: so101-test)"
     echo "  SINGLE_TASK         Task description (default: 'start and test so101 arm.')"
-    echo "  USE_NPU             Set to 1 to enable Ascend NPU support (default: 0)"
-    echo "  CLOUD_OFFLOAD       Set to 1 to skip local video encoding (default: 0)"
-    echo "                      When enabled, raw images are kept for cloud upload/training"
+    echo "  USE_NPU             Ascend NPU support (default: 1, set to 0 to disable)"
+    echo "  CLOUD_OFFLOAD       Cloud mode (default: 1, set to 0 for local encoding)"
+    echo "                      When enabled, raw images are uploaded to cloud for training"
     echo "  ASCEND_TOOLKIT_PATH Path to CANN toolkit (default: /usr/local/Ascend/ascend-toolkit)"
     echo "  DORA_INIT_DELAY     Seconds to wait for DORA to initialize (default: 5)"
     echo "  SOCKET_TIMEOUT      Seconds to wait for ZeroMQ sockets (default: 30)"
     echo ""
     echo "Examples:"
-    echo "  $0"
-    echo "  REPO_ID=my-dataset $0"
-    echo "  $0 --record.repo_id=custom-dataset"
+    echo "  $0                              # Default: cloud mode + NPU enabled"
+    echo "  REPO_ID=my-dataset $0           # Custom dataset name"
     echo ""
-    echo "  # With Ascend NPU support:"
-    echo "  USE_NPU=1 $0"
+    echo "  # Disable cloud mode (use local video encoding):"
+    echo "  CLOUD_OFFLOAD=0 $0"
     echo ""
-    echo "  # With cloud offload (skip local encoding, upload to cloud):"
-    echo "  CLOUD_OFFLOAD=1 $0"
+    echo "  # Disable NPU (for non-Ascend hardware):"
+    echo "  USE_NPU=0 $0"
     echo ""
-    echo "  # NPU + cloud offload (recommended for Orange Pi):"
-    echo "  USE_NPU=1 CLOUD_OFFLOAD=1 $0"
+    echo "  # Local mode without NPU:"
+    echo "  USE_NPU=0 CLOUD_OFFLOAD=0 $0"
     echo ""
     echo "  # With longer init delay (if timeout issues):"
     echo "  DORA_INIT_DELAY=10 $0"
     echo ""
     echo "Note: This script starts both DORA dataflow and CLI automatically."
     echo "      Press 'n' to save episode and start new one."
-    echo "      Press 'e' to stop recording and exit (with cloud training if CLOUD_OFFLOAD=1)."
+    echo "      Press 'e' to stop recording and exit (with cloud training if enabled)."
 }
 
 # Main entry point
@@ -356,9 +357,11 @@ main() {
     if [ "$CLOUD_OFFLOAD" == "1" ]; then
         echo "    'e' - Stop, upload to cloud, and train"
         echo ""
-        echo "  Mode: Cloud Offload (skip local encoding)"
+        echo "  Mode: Cloud Offload (default)"
     else
         echo "    'e' - Stop recording and exit"
+        echo ""
+        echo "  Mode: Local Encoding"
     fi
     echo "=========================================="
     echo ""

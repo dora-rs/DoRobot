@@ -9,7 +9,6 @@ from pathlib import Path
 
 import numpy as np
 import torch
-import torch_npu
 
 
 def inside_slurm():
@@ -94,11 +93,8 @@ def auto_select_torch_device() -> torch.device:
         logging.info("Cuda backend detected, using cuda.")
         return torch.device("cuda")
     elif torch.backends.mps.is_available():
-        logging.info("Metal backend detected, using cuda.")
+        logging.info("Metal backend detected, using mps.")
         return torch.device("mps")
-    elif torch_npu.npu.is_available():
-        logging.info("NPU backend detected, using npu.")
-        return torch.device("npu")
     else:
         logging.warning("No accelerated backend detected. Using default cpu, this will be slow.")
         return torch.device("cpu")
@@ -130,9 +126,6 @@ def get_safe_torch_device(try_device: str, log: bool = False) -> torch.device:
         case "mps":
             assert torch.backends.mps.is_available()
             device = torch.device("mps")
-        case "npu":
-            assert torch_npu.npu.is_available()
-            device = torch.device("npu")
         case "cpu":
             device = torch.device("cpu")
             if log:
@@ -207,21 +200,19 @@ def is_torch_device_available(try_device: str) -> bool:
         return torch.cuda.is_available()
     elif try_device == "mps":
         return torch.backends.mps.is_available()
-    elif try_device == "npu":
-        return torch_npu.npu.is_available()
     elif try_device == "cpu":
         return True
     else:
-        raise ValueError(f"Unknown device {try_device}. Supported devices are: cuda, mps, npu or cpu.")
+        raise ValueError(f"Unknown device {try_device}. Supported devices are: cuda, mps or cpu.")
 
 
 def is_amp_available(device: str):
-    if device in ["cuda", "cpu", "npu"]:
+    if device in ["cuda", "cpu"]:
         return True
     elif device == "mps":
         return False
     else:
-        raise ValueError(f"Unknown device '{device}'.")
+        raise ValueError(f"Unknown device '{device}.")
 
 
 ######################################################### old ################
