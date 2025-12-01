@@ -107,7 +107,7 @@ class RecordConfig():
     # Enable asynchronous episode saving (non-blocking save operations)
     use_async_save: bool = True
     # Maximum number of episodes that can be queued for async saving
-    async_save_queue_size: int = 10
+    async_save_queue_size: int = 50
     # Timeout in seconds for save operations
     async_save_timeout_s: int = 300
     # Maximum retry attempts for failed saves

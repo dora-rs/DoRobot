@@ -209,12 +209,58 @@ class CameraDisplay:
 
         return grid
 
-    def show(self, images: dict[str, np.ndarray]) -> int:
+    def _add_status_bar(self, image: np.ndarray, episode_index: int, status: str = "") -> np.ndarray:
+        """
+        Add a status bar to the bottom of the combined image showing episode info.
+
+        Args:
+            image: Input image (BGR format)
+            episode_index: Current episode number
+            status: Optional status message (e.g., "Recording", "Paused")
+
+        Returns:
+            Image with status bar added at bottom
+        """
+        h, w = image.shape[:2]
+        bar_height = 30
+
+        # Create status bar (dark background)
+        status_bar = np.zeros((bar_height, w, 3), dtype=np.uint8)
+        status_bar[:] = (30, 30, 30)  # Dark gray background
+
+        # Build status text
+        status_text = f"Episode: {episode_index}"
+        if status:
+            status_text += f"  |  {status}"
+
+        # Add text
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.7
+        cv2.putText(
+            status_bar, status_text, (10, 22),
+            font, font_scale, (0, 255, 0), 1, cv2.LINE_AA
+        )
+
+        # Add key hints on right side
+        key_hints = "n: Next | p: Pause/Reset | e: Exit"
+        hint_size = cv2.getTextSize(key_hints, font, 0.5, 1)[0]
+        hint_x = w - hint_size[0] - 10
+        cv2.putText(
+            status_bar, key_hints, (hint_x, 20),
+            font, 0.5, (180, 180, 180), 1, cv2.LINE_AA
+        )
+
+        # Stack status bar at bottom of image
+        return np.vstack([image, status_bar])
+
+    def show(self, images: dict[str, np.ndarray], episode_index: int = 0, status: str = "") -> int:
         """
         Display multiple camera images in a single window.
 
         Args:
             images: Dict mapping camera name to image array (RGB format)
+            episode_index: Current episode number to display in status bar
+            status: Optional status message to display
 
         Returns:
             Key code from cv2.waitKey (for input handling)
@@ -236,6 +282,9 @@ class CameraDisplay:
 
         # Combine images
         combined = self._combine_images(image_dict)
+
+        # Add status bar with episode info
+        combined = self._add_status_bar(combined, episode_index, status)
 
         # Resize window if image size changed
         h, w = combined.shape[:2]

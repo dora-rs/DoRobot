@@ -296,8 +296,12 @@ def record_loop(cfg: ControlPipelineConfig, daemon: Daemon):
 
     # 主循环：连续录制多个episodes
     while True:
+        # Get current episode index for display
+        current_episode = record.dataset.meta.total_episodes
+
         logging.info("Recording active. Press:")
         logging.info("- 'n' to save current episode and start new one")
+        logging.info("- 'p' to proceed after environment reset")
         if record.cloud_offload:
             logging.info("- 'e' to stop recording and upload to cloud for training (cloud_offload=True)")
         else:
@@ -310,7 +314,7 @@ def record_loop(cfg: ControlPipelineConfig, daemon: Daemon):
 
             # 显示图像（仅在非无头模式）- 使用统一相机窗口
             if observation and not is_headless():
-                key = camera_display.show(observation)
+                key = camera_display.show(observation, episode_index=current_episode, status="Recording")
             else:
                 key = cv2.waitKey(10)
 
@@ -333,8 +337,39 @@ def record_loop(cfg: ControlPipelineConfig, daemon: Daemon):
                                        f"{status['failed_episodes']}")
 
                 logging.info("*"*30)
-                logging.info("Starting new episode...")
+                logging.info("Reset Environment - Press 'p' to proceed to next episode")
                 logging.info("*"*30)
+
+                # Voice prompt: reset environment
+                log_say("Reset environment. Press P to proceed.", play_sounds=True)
+
+                # Wait for 'p' to proceed (with timeout)
+                reset_start = time.time()
+                reset_timeout = 60  # 60 seconds timeout
+
+                while time.time() - reset_start < reset_timeout:
+                    daemon.update()
+                    observation = daemon.get_observation()
+
+                    # Show reset view with status
+                    if observation and not is_headless():
+                        next_episode = record.dataset.meta.total_episodes
+                        key = camera_display.show(observation, episode_index=next_episode, status="Reset - Press P")
+                    else:
+                        key = cv2.waitKey(10)
+
+                    if key in [ord('p'), ord('P')]:
+                        logging.info("Reset confirmed. Proceeding to next episode...")
+                        break
+                    elif key in [ord('e'), ord('E')]:
+                        logging.info("User aborted during reset")
+                        # Trigger exit by setting key and breaking
+                        camera_display.close()
+                        cv2.destroyAllWindows()
+                        daemon.stop()
+                        return
+                else:
+                    logging.info("Reset timeout - auto-proceeding to next episode")
 
                 # Voice prompt: recording new episode
                 next_episode = record.dataset.meta.total_episodes
